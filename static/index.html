@@ -1,0 +1,1838 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Web Agent</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: { extend: {} }
+};
+</script>
+<style>
+:root {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #21262d;
+  --bg-hover: #1c2333;
+  --border: #30363d;
+  --border-light: #21262d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #484f58;
+  --accent: #58a6ff;
+  --accent-hover: #79c0ff;
+  --accent-subtle: rgba(88,166,255,0.1);
+  --user-bubble: #1f6feb;
+  --user-bubble-text: #e6edf3;
+  --success: #3fb950;
+  --success-bg: rgba(63,185,80,0.1);
+  --error: #f85149;
+  --error-bg: rgba(248,81,73,0.1);
+  --warning: #d29922;
+  --warning-bg: rgba(210,153,34,0.1);
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'SF Pro', 'Helvetica Neue', sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+  --thinking-bg: rgba(139,148,158,0.05);
+  --thinking-border: rgba(139,148,158,0.2);
+  --scrollbar-bg: transparent;
+  --scrollbar-thumb: #30363d;
+  --scrollbar-thumb-hover: #484f58;
+  --panel-shadow: none;
+}
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f6f8fa;
+  --bg-tertiary: #eaeef2;
+  --bg-hover: #eaeef2;
+  --border: #d0d7de;
+  --border-light: #e5e8ec;
+  --text-primary: #1f2328;
+  --text-secondary: #656d76;
+  --text-muted: #afb8c1;
+  --accent: #0969da;
+  --accent-hover: #0550ae;
+  --accent-subtle: rgba(9,105,218,0.1);
+  --user-bubble: #0969da;
+  --user-bubble-text: #ffffff;
+  --success: #1a7f37;
+  --success-bg: rgba(26,127,55,0.1);
+  --error: #cf222e;
+  --error-bg: rgba(207,34,46,0.1);
+  --warning: #9a6700;
+  --warning-bg: rgba(154,103,0,0.1);
+  --thinking-bg: rgba(31,35,40,0.03);
+  --thinking-border: rgba(31,35,40,0.12);
+  --scrollbar-thumb: #c1c8cd;
+  --scrollbar-thumb-hover: #a8b1b9;
+  --panel-shadow: 0 1px 3px rgba(31,35,40,0.06);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  display: flex;
+}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--scrollbar-bg); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
+
+/* Activity Bar */
+.activity-bar {
+  width: 48px;
+  min-width: 48px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0;
+  z-index: 10;
+}
+.activity-btn {
+  width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  border: none; background: none; color: var(--text-muted);
+  cursor: pointer; border-radius: 6px; position: relative;
+  transition: all 0.15s;
+  margin-bottom: 2px;
+}
+.activity-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
+.activity-btn.active { color: var(--text-primary); }
+.activity-btn.active::before {
+  content: '';
+  position: absolute;
+  left: -8px; top: 8px; bottom: 8px; width: 2px;
+  background: var(--accent); border-radius: 0 2px 2px 0;
+}
+.activity-btn svg { width: 20px; height: 20px; }
+.activity-separator { flex: 1; }
+.connection-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  margin: 8px 0;
+  transition: background 0.3s;
+}
+.connection-dot.connected { background: var(--success); box-shadow: 0 0 6px var(--success); }
+.connection-dot.connecting { background: var(--warning); animation: pulse 1.5s infinite; }
+.connection-dot.disconnected { background: var(--error); }
+
+/* Side Panel */
+.side-panel {
+  width: 280px; min-width: 0;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  transition: width 0.2s, min-width 0.2s, opacity 0.2s;
+}
+.side-panel.collapsed { width: 0; min-width: 0; opacity: 0; }
+.panel-header {
+  padding: 12px 16px;
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  min-height: 40px;
+}
+.panel-content { flex: 1; overflow-y: auto; padding: 4px 0; }
+
+/* Main Chat */
+.main-area {
+  flex: 1; display: flex; flex-direction: column;
+  min-width: 0; position: relative;
+}
+.chat-header {
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  min-height: 40px;
+}
+.chat-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.chat-actions { display: flex; gap: 8px; align-items: center; }
+.theme-toggle {
+  width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); background: none; color: var(--text-secondary);
+  cursor: pointer; border-radius: 6px; transition: all 0.15s;
+}
+.theme-toggle:hover { color: var(--text-primary); border-color: var(--text-muted); }
+.chat-messages {
+  flex: 1; overflow-y: auto; padding: 16px 0; position: relative;
+  scroll-behavior: smooth;
+}
+.chat-status-bar {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 16px;
+  font-size: 11px;
+  color: var(--accent);
+  background: var(--accent-subtle);
+  border-top: 1px solid var(--border);
+  animation: fadeIn 0.2s;
+}
+.chat-status-bar.show { display: flex; }
+.chat-status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.chat-status-text { font-weight: 500; }
+
+.chat-input-area {
+  border-top: none;
+  padding: 8px 16px 12px;
+  background: var(--bg-primary);
+}
+.chat-input-wrapper {
+  display: flex; gap: 8px; align-items: center;
+  position: relative;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 8px 8px 16px;
+  transition: border-color 0.15s;
+}
+.chat-input-wrapper:focus-within { border-color: var(--accent); }
+.chat-input {
+  flex: 1; border: none; background: none;
+  color: var(--text-primary);
+  font-size: 14px; line-height: 1.5;
+  padding: 6px 0;
+  resize: none; outline: none;
+  max-height: 120px;
+  font-family: var(--font-sans);
+}
+.chat-input::placeholder { color: var(--text-muted); }
+.btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 7px 14px; border-radius: 7px;
+  font-size: 13px; font-weight: 500;
+  border: none; cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-danger { background: var(--error); color: #fff; }
+.btn-danger:hover { background: #da3633; }
+.btn-ghost { background: none; color: var(--text-secondary); }
+.btn-ghost:hover { color: var(--text-primary); background: var(--bg-hover); }
+.btn-icon {
+  width: 32px; height: 32px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* Messages */
+.message-group { margin-bottom: 4px; }
+.message {
+  padding: 8px 20px;
+  display: flex;
+  gap: 10px;
+}
+.message.user { justify-content: flex-end; }
+.message.user .bubble {
+  background: var(--user-bubble);
+  color: var(--user-bubble-text);
+  border-radius: 12px 12px 4px 12px;
+  padding: 8px 14px;
+  max-width: 75%;
+  font-size: 14px; line-height: 1.5;
+}
+.message.assistant .bubble {
+  max-width: 90%;
+  font-size: 14px; line-height: 1.6;
+}
+.message-avatar {
+  width: 28px; height: 28px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; margin-top: 2px;
+  font-size: 12px; font-weight: 600;
+}
+.message.assistant .message-avatar { background: var(--accent-subtle); color: var(--accent); }
+
+/* Thinking Block */
+.thinking-block {
+  margin: 4px 0;
+  padding: 8px 14px;
+  background: var(--thinking-bg);
+  border-left: 2px solid var(--thinking-border);
+  border-radius: 6px;
+  font-size: 13px; color: var(--text-secondary);
+  font-style: italic;
+}
+.thinking-block .cursor { animation: blink 0.8s step-end infinite; }
+
+/* Text Block */
+.text-block {
+  padding: 2px 0;
+  line-height: 1.7;
+}
+.text-block p { margin: 6px 0; }
+.text-block code {
+  background: var(--bg-tertiary);
+  padding: 1px 5px; border-radius: 4px;
+  font-family: var(--font-mono); font-size: 13px;
+}
+.text-block pre {
+  margin: 8px 0; border-radius: 8px; overflow: hidden;
+  border: 1px solid var(--border);
+}
+.text-block pre code {
+  display: block; overflow-x: auto;
+  background: #0d1117; color: #e6edf3;
+  padding: 12px 16px;
+  font-size: 13px;
+}
+.text-block ul, .text-block ol { padding-left: 20px; margin: 6px 0; }
+.text-block li { margin: 2px 0; }
+.text-block li > p { margin: 0; display: inline; }
+.text-block h1, .text-block h2, .text-block h3 { margin: 12px 0 6px; font-weight: 600; }
+.text-block h1 { font-size: 18px; }
+.text-block h2 { font-size: 16px; }
+.text-block h3 { font-size: 14px; }
+.text-block strong { font-weight: 600; }
+.text-block code:not(pre code) {
+  background: var(--bg-tertiary); padding: 1px 5px;
+  border-radius: 4px; font-size: 0.9em;
+}
+.text-block a { color: var(--accent); text-decoration: none; }
+.text-block a:hover { text-decoration: underline; }
+.text-block table { border-collapse: collapse; margin: 8px 0; font-size: 13px; }
+.text-block th, .text-block td { border: 1px solid var(--border); padding: 6px 10px; }
+.text-block th { background: var(--bg-tertiary); font-weight: 600; }
+.text-block blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 12px; margin: 8px 0;
+  color: var(--text-secondary);
+}
+
+/* Tool Call Block */
+.tool-call-block {
+  margin: 4px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.tool-call-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  font-weight: 500;
+}
+.tool-call-header:hover { background: var(--bg-hover); }
+.tool-call-icon { width: 16px; height: 16px; flex-shrink: 0; }
+.tool-call-name { color: var(--accent); font-weight: 600; }
+.tool-call-status { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.tool-call-time { color: var(--text-muted); font-size: 11px; }
+.spinner { animation: spin 1s linear infinite; }
+
+/* Syntax highlighting keyword colors */
+.hljs-keyword { color: #ff7b72; }
+.hljs-string { color: #a5d6ff; }
+.hljs-number { color: #79c0ff; }
+.hljs-comment { color: #8b949e; font-style: italic; }
+.tool-call-body { padding: 8px 12px; font-family: var(--font-mono); font-size: 12px; }
+.tool-call-body pre { white-space: pre-wrap; word-break: break-all; }
+.tool-result-block {
+  font-family: var(--font-mono); font-size: 12px;
+  line-height: 1.5;
+  max-height: 400px; overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+.tool-result-block pre {
+  margin: 0; padding: 8px 12px;
+  white-space: pre-wrap; word-break: break-all;
+}
+.tool-result-block.success { background: var(--success-bg); }
+.tool-result-block.error { background: var(--error-bg); color: var(--error); }
+.tool-result-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; font-size: 11px;
+  cursor: pointer; user-select: none;
+  border-top: 1px solid var(--border);
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+}
+.tool-result-header:hover { background: var(--bg-hover); }
+.tool-result-header .chevron { transition: transform 0.15s; width: 12px; height: 12px; }
+.tool-result-header .chevron.open { transform: rotate(90deg); }
+
+/* Dir browser */
+.dir-browse-item {
+  padding: 7px 12px; font-size: 13px; cursor: pointer;
+  display: flex; align-items: center; gap: 6px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-light);
+}
+.dir-browse-item:hover { background: var(--bg-hover); }
+.dir-browse-item:last-child { border-bottom: none; }
+
+/* File Tree */
+.file-tree-item {
+  display: flex; align-items: center; gap: 4px;
+  padding: 3px 12px 3px 0;
+  font-size: 13px;
+  cursor: pointer; color: var(--text-primary);
+  white-space: nowrap;
+}
+.file-tree-item:hover { background: var(--bg-hover); }
+.file-tree-item .icon { width: 16px; height: 16px; flex-shrink: 0; color: var(--text-muted); }
+.file-tree-item .name { overflow: hidden; text-overflow: ellipsis; }
+.file-tree-item .chevron {
+  width: 16px; height: 16px;
+  transition: transform 0.15s;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.file-tree-item .chevron.open { transform: rotate(90deg); }
+.file-tree-children { overflow: hidden; }
+
+/* Skills Panel */
+.skill-item {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-light);
+}
+.skill-item:last-child { border-bottom: none; }
+.skill-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.skill-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.skill-desc { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.toggle {
+  position: relative; width: 36px; height: 20px; flex-shrink: 0;
+  background: var(--bg-tertiary); border-radius: 10px;
+  border: 1px solid var(--border);
+  cursor: pointer; transition: all 0.2s;
+}
+.toggle.active { background: var(--accent); border-color: var(--accent); }
+.toggle::after {
+  content: ''; position: absolute;
+  top: 2px; left: 2px;
+  width: 14px; height: 14px;
+  border-radius: 50%; background: white;
+  transition: transform 0.2s;
+}
+.toggle.active::after { transform: translateX(16px); }
+
+/* Settings */
+.settings-section { padding: 16px; }
+.settings-label {
+  font-size: 12px; font-weight: 600; color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: 0.03em;
+  margin-bottom: 6px; display: block;
+}
+.settings-input {
+  width: 100%; padding: 8px 10px;
+  background: var(--bg-tertiary); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text-primary);
+  font-size: 13px; outline: none; transition: border-color 0.15s;
+  margin-bottom: 12px;
+}
+.settings-input:focus { border-color: var(--accent); }
+.settings-input::placeholder { color: var(--text-muted); }
+.settings-select {
+  width: 100%; padding: 8px 10px;
+  background: var(--bg-tertiary); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text-primary);
+  font-size: 13px; outline: none; cursor: pointer;
+  margin-bottom: 12px;
+}
+
+/* File Preview */
+.file-preview-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(0,0,0,0.6);
+  display: flex; align-items: center; justify-content: center;
+  padding: 40px;
+}
+.file-preview-modal {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 100%; max-width: 900px; max-height: 80vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.file-preview-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.file-preview-name { font-size: 14px; font-weight: 600; }
+.file-preview-content {
+  flex: 1; overflow: auto; padding: 16px;
+  font-family: var(--font-mono); font-size: 13px; line-height: 1.5;
+}
+.file-preview-content pre { margin: 0; white-space: pre-wrap; }
+
+/* AskUser Modal */
+.ask-user-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(0,0,0,0.6);
+  display: none; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.ask-user-overlay.open { display: flex; }
+.ask-user-modal {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 100%; max-width: 500px;
+  padding: 24px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.ask-user-question { font-size: 15px; line-height: 1.5; margin-bottom: 16px; }
+.ask-user-input {
+  width: 100%; padding: 10px 12px;
+  background: var(--bg-tertiary); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text-primary);
+  font-size: 14px; outline: none; resize: none;
+  margin-bottom: 12px; min-height: 60px;
+}
+.ask-user-input:focus { border-color: var(--accent); }
+
+/* Empty state */
+.empty-state {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 40px;
+}
+.empty-state svg { width: 48px; height: 48px; margin-bottom: 16px; }
+.empty-state h3 { font-size: 16px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 600; }
+.empty-state p { font-size: 13px; }
+
+/* Connection banner */
+.connection-banner {
+  display: none;
+  padding: 6px 16px;
+  font-size: 12px;
+  text-align: center;
+  animation: slideDown 0.3s;
+}
+.connection-banner.show { display: block; }
+.connection-banner.error { background: var(--error-bg); color: var(--error); }
+.connection-banner.connecting { background: var(--warning-bg); color: var(--warning); }
+
+/* Processing bar */
+.processing-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent) 0%, #7c3aed 50%, var(--accent) 100%);
+  background-size: 200% 100%;
+  animation: processingSlide 1.2s linear infinite;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 20;
+  transition: opacity 0.2s;
+}
+.processing-bar.active { opacity: 1; }
+@keyframes processingSlide {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Mention autocomplete */
+.mention-dropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 -4px 12px rgba(0,0,0,0.3);
+  display: none;
+  z-index: 50;
+  margin-bottom: 4px;
+}
+.mention-dropdown.show { display: block; }
+.mention-item {
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+}
+.mention-item:hover,
+.mention-item.active { background: var(--bg-hover); }
+.mention-item .icon { flex-shrink: 0; opacity: 0.6; }
+.mention-item .path { color: var(--text-secondary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mention-item .match { color: var(--accent); font-weight: 600; }
+.connection-banner.success { background: var(--success-bg); color: var(--success); }
+
+/* Skeleton loading */
+.skeleton { background: var(--bg-tertiary); border-radius: 4px; animation: shimmer 1.5s infinite; }
+.skeleton-line { height: 14px; margin: 6px 12px; }
+.skeleton-line.w60 { width: 60%; }
+.skeleton-line.w40 { width: 40%; }
+.skeleton-line.w80 { width: 80%; }
+.spin { animation: spin 1s linear infinite; }
+
+/* Info toast */
+.info-toast {
+  padding: 8px 14px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+  border-bottom: 1px solid var(--border-light);
+}
+
+/* Animations */
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes shimmer { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
+@keyframes slideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+.message-group { animation: fadeIn 0.2s; }
+
+/* Collapsible */
+.collapsible-body { overflow: hidden; transition: max-height 0.2s; max-height: 0; }
+.collapsible-body.open { max-height: 2000px; }
+
+/* Typing indicator */
+.typing-indicator {
+  display: flex; gap: 4px; padding: 12px 20px; align-items: center;
+}
+.typing-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); animation: pulse 1.2s infinite; }
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* Markdown table styles are in text-block above */
+
+@media (max-width: 768px) {
+  .side-panel { position: fixed; left: 48px; top: 0; bottom: 0; z-index: 20; box-shadow: 4px 0 20px rgba(0,0,0,0.3); }
+  .side-panel.collapsed { transform: translateX(-100%); width: 280px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Activity Bar -->
+<div class="activity-bar">
+  <button class="activity-btn active" data-panel="files" title="Files">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+  </button>
+  <button class="activity-btn" data-panel="skills" title="Skills">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+  </button>
+  <button class="activity-btn" data-panel="settings" title="Settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1a11 11 0 0 0-2.5.3l-.5 2.2a1 1 0 0 1-.8.8l-2.2.5a1 1 0 0 1-1.1-.4L2.5 3.2a11 11 0 0 0-1.3 2.3l1.7 1.4a1 1 0 0 1 .3 1.1L2.4 10a1 1 0 0 1-.9.6l-2.2-.4A11 11 0 0 0 0 12a11 11 0 0 0 .3 2.5l2.2.5a1 1 0 0 1 .8.8l.5 2.2a1 1 0 0 1-.4 1.1L1.7 20.5a11 11 0 0 0 2.3 1.3l1.4-1.7a1 1 0 0 1 1.1-.3l2.2.7a1 1 0 0 1 .6.9l.4 2.2A11 11 0 0 0 12 24a11 11 0 0 0 2.5-.3l.5-2.2a1 1 0 0 1 .8-.8l2.2-.5a1 1 0 0 1 1.1.4l1.4 1.7a11 11 0 0 0 2.3-1.3l-1.7-1.4a1 1 0 0 1-.3-1.1l.7-2.2a1 1 0 0 1 .9-.6l2.2.4A11 11 0 0 0 24 12a11 11 0 0 0-.3-2.5l-2.2-.5a1 1 0 0 1-.8-.8l-.5-2.2a1 1 0 0 1 .4-1.1l1.7-1.4a11 11 0 0 0-2.3-1.3l-1.4 1.7a1 1 0 0 1-1.1.3l-2.2-.7a1 1 0 0 1-.6-.9l-.4-2.2A11 11 0 0 0 12 1z"/></svg>
+  </button>
+  <div class="activity-separator"></div>
+  <div class="connection-dot connecting" id="connectionDot" title="Connecting..."></div>
+</div>
+
+<!-- Side Panel -->
+<div class="side-panel" id="sidePanel">
+  <div id="panelFiles" class="panel-section" style="display:flex;flex-direction:column;height:100%;">
+    <div class="panel-header" style="padding:6px 8px;flex-direction:column;align-items:stretch;gap:4px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-secondary);">Files</span>
+      </div>
+      <div style="display:flex;gap:4px;">
+        <input id="wsPathInput" class="settings-input" type="text"
+          placeholder="Workspace path..."
+          style="margin-bottom:0;flex:1;font-size:12px;padding:4px 6px;">
+        <button id="openFolderBtn" class="btn btn-ghost" title="Browse..." style="flex-shrink:0;width:28px;height:28px;padding:0;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);border-radius:6px;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="panel-content" id="fileTreeContainer" style="flex:1;">
+    </div>
+  </div>
+  <div id="panelSkills" class="panel-section" style="display:none;flex-direction:column;height:100%;">
+    <div class="panel-header">Skills</div>
+    <div class="panel-content" id="skillsContainer"></div>
+  </div>
+  <div id="panelSettings" class="panel-section" style="display:none;flex-direction:column;height:100%;">
+    <div class="panel-header">Settings</div>
+    <div class="panel-content settings-section" id="settingsContainer">
+      <label class="settings-label">Provider</label>
+      <select class="settings-select" id="setProvider">
+        <option value="anthropic">Anthropic</option>
+        <option value="openai">OpenAI</option>
+      </select>
+      <label class="settings-label">API Key</label>
+      <input class="settings-input" type="password" id="setApiKey" placeholder="sk-ant-...">
+      <label class="settings-label">Model</label>
+      <input class="settings-input" type="text" id="setModel" placeholder="claude-sonnet-4-20250514">
+      <label class="settings-label">Base URL <span style="color:var(--text-muted);font-weight:400;text-transform:none;">(optional)</span></label>
+      <input class="settings-input" type="text" id="setBaseURL" placeholder="https://api.anthropic.com">
+      <label class="settings-label">Workspace Path</label>
+      <input class="settings-input" type="text" id="setWorkspace" placeholder="/path/to/project">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:-8px;margin-bottom:12px;">Use the 📁 Files panel to open a workspace folder</div>
+      <button class="btn btn-primary" id="saveSettings" style="width:100%;justify-content:center;margin-top:8px;">Apply Settings</button>
+    </div>
+  </div>
+</div>
+
+<!-- Main Area -->
+<div class="main-area">
+  <div class="chat-header">
+    <span class="chat-title">Web Agent</span>
+    <div class="chat-actions">
+      <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+  <div class="connection-banner" id="connectionBanner"></div>
+  <div class="chat-messages" id="chatMessages">
+    <div class="processing-bar" id="processingBar"></div>
+    <div class="empty-state" id="emptyState">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <h3>Start a conversation</h3>
+      <p>Send a message and the agent will help you with code.</p>
+    </div>
+  </div>
+  <div class="chat-status-bar" id="chatStatusBar">
+    <span class="chat-status-dot"></span>
+    <span class="chat-status-text">AI is running...</span>
+  </div>
+  <div class="chat-input-area">
+    <div class="chat-input-wrapper">
+      <div class="mention-dropdown" id="mentionDropdown"></div>
+      <textarea class="chat-input" id="chatInput" placeholder="Type a message... (@ file, / skill)" rows="1" disabled></textarea>
+      <button class="btn btn-primary btn-icon" id="sendBtn" disabled title="Send">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
+      <button class="btn btn-danger btn-icon" id="abortBtn" style="display:none" title="Stop">
+        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- File Preview Overlay -->
+<div class="file-preview-overlay" id="filePreviewOverlay" style="display:none" onclick="if(event.target===this)closeFilePreview()">
+  <div class="file-preview-modal">
+    <div class="file-preview-header">
+      <span class="file-preview-name" id="filePreviewName">File</span>
+      <button class="btn btn-ghost btn-icon" onclick="closeFilePreview()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="file-preview-content" id="filePreviewContent"><pre></pre></div>
+  </div>
+</div>
+
+<!-- AskUser Modal -->
+<div class="ask-user-overlay" id="askUserOverlay">
+  <div class="ask-user-modal">
+    <div class="ask-user-question" id="askUserQuestion"></div>
+    <textarea class="ask-user-input" id="askUserInput" placeholder="Your response..." rows="3"></textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-primary" id="askUserSubmit">Send</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===================================================================
+// State
+// ===================================================================
+const state = {
+  ws: null,
+  sessionId: null,
+  connected: false,
+  reconnecting: false,
+  processing: false,
+  pendingToolCallId: null,
+  pendingToolCallArgs: {},
+  currentStreamText: null,
+  messagesContainer: document.getElementById('chatMessages'),
+  emptyState: document.getElementById('emptyState'),
+  chatInput: document.getElementById('chatInput'),
+  sendBtn: document.getElementById('sendBtn'),
+  abortBtn: document.getElementById('abortBtn'),
+  connectionBanner: document.getElementById('connectionBanner'),
+  connectionDot: document.getElementById('connectionDot'),
+  sidePanel: document.getElementById('sidePanel'),
+  activePanel: 'files',
+  settings: {
+    apiKey: localStorage.getItem('wa_api_key') || '',
+    provider: localStorage.getItem('wa_provider') || 'anthropic',
+    model: localStorage.getItem('wa_model') || '',
+    baseUrl: localStorage.getItem('wa_base_url') || '',
+    workspace: localStorage.getItem('wa_workspace') || '',
+  },
+  skills: [],
+};
+
+// ===================================================================
+// Theme
+// ===================================================================
+function getTheme() { return localStorage.getItem('wa_theme') || 'dark'; }
+function setTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  localStorage.setItem('wa_theme', t);
+}
+setTheme(getTheme());
+document.getElementById('themeToggle').addEventListener('click', () => {
+  setTheme(getTheme() === 'dark' ? 'light' : 'dark');
+});
+
+// ===================================================================
+// Activity Bar
+// ===================================================================
+document.querySelectorAll('.activity-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.activity-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.activePanel = btn.dataset.panel;
+    showPanel(state.activePanel);
+    state.sidePanel.classList.remove('collapsed');
+  });
+});
+
+function showPanel(name) {
+  ['files','skills','settings'].forEach(p => {
+    const el = document.getElementById('panel' + p.charAt(0).toUpperCase() + p.slice(1));
+    el.style.display = p === name ? 'flex' : 'none';
+  });
+}
+
+// ===================================================================
+// File Tree
+// ===================================================================
+async function loadFileTree() {
+  const container = document.getElementById('fileTreeContainer');
+  // Show empty state if no workspace set
+  if (!state.settings.workspace) {
+    container.innerHTML = '<div style="padding:24px 16px;text-align:center;"><div style="font-size:32px;margin-bottom:8px;opacity:0.4;">📂</div><div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px;">No workspace folder</div><div style="font-size:12px;color:var(--text-muted);">Click the folder icon above to open one</div></div>';
+    return;
+  }
+  container.innerHTML = '<div class="skeleton skeleton-line w80"></div><div class="skeleton skeleton-line w60"></div><div class="skeleton skeleton-line w80"></div>';
+  try {
+    // Pass workspace path directly to avoid race condition with WS settings
+    const url = '/api/workspace/tree?workspace=' + encodeURIComponent(state.settings.workspace);
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('Failed to load');
+    const data = await resp.json();
+    renderTree(data.tree, container, '');
+  } catch(e) {
+    container.innerHTML = '<div style="padding:16px;text-align:center;color:var(--error);font-size:13px;">Failed to load file tree.</div>';
+  }
+}
+
+function renderTree(node, container, pathPrefix, depth) {
+  if (!node || node.type !== 'directory') return;
+  depth = depth || 0;
+  const ul = document.createElement('div');
+  const indent = depth * 16;
+  (node.children || []).forEach(child => {
+    const itemPath = pathPrefix ? pathPrefix + '/' + child.name : child.name;
+    const item = document.createElement('div');
+    if (child.type === 'directory') {
+      const header = document.createElement('div');
+      header.className = 'file-tree-item';
+      header.style.paddingLeft = (8 + indent) + 'px';
+      header.innerHTML = `
+        <span class="chevron" style="visibility:${(child.children||[]).length?'visible':'hidden'}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="9 18 15 12 9 6"/></svg>
+        </span>
+        <span class="icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        </span>
+        <span class="name">${escapeHtml(child.name)}</span>
+      `;
+      const childrenContainer = document.createElement('div');
+      childrenContainer.className = 'file-tree-children';
+      childrenContainer.style.display = 'none';
+      let loaded = false;
+      header.addEventListener('click', () => {
+        const chev = header.querySelector('.chevron');
+        chev.classList.toggle('open');
+        if (childrenContainer.style.display === 'none') {
+          childrenContainer.style.display = 'block';
+          if (!loaded && child.children) {
+            renderTree(child, childrenContainer, itemPath, depth + 1);
+            loaded = true;
+          }
+        } else {
+          childrenContainer.style.display = 'none';
+        }
+      });
+      item.appendChild(header);
+      item.appendChild(childrenContainer);
+    } else {
+      item.className = 'file-tree-item';
+      item.style.paddingLeft = (24 + indent) + 'px';
+      const sizeStr = child.size !== undefined ? ` (${formatSize(child.size)})` : '';
+      item.innerHTML = `
+        <span class="icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        </span>
+        <span class="name">${escapeHtml(child.name)}</span>
+        <span style="margin-left:auto;color:var(--text-muted);font-size:11px;">${sizeStr}</span>
+      `;
+      item.addEventListener('click', () => openFile(itemPath));
+    }
+    ul.appendChild(item);
+  });
+  container.appendChild(ul);
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+  return (bytes/1024/1024).toFixed(1) + ' MB';
+}
+
+async function openFile(path) {
+  try {
+    const resp = await fetch('/api/workspace/file?path=' + encodeURIComponent(path));
+    if (!resp.ok) throw new Error('Failed');
+    const data = await resp.json();
+    document.getElementById('filePreviewName').textContent = data.name;
+    const contentEl = document.getElementById('filePreviewContent');
+    const ext = data.name.split('.').pop();
+    const langMap = {py:'python',js:'javascript',ts:'typescript',html:'html',css:'css',json:'json',md:'markdown',yaml:'yaml',yml:'yaml',sh:'bash',bash:'bash',sql:'sql',go:'go',rs:'rust',java:'java',c:'c',cpp:'cpp',rb:'ruby',php:'php'};
+    const lang = langMap[ext] || 'plaintext';
+    contentEl.innerHTML = '<pre><code class="language-' + lang + '">' + highlightCode(data.content, lang) + '</code></pre>';
+    document.getElementById('filePreviewOverlay').style.display = 'flex';
+  } catch(e) {
+    // Silently fail
+  }
+}
+
+function closeFilePreview() {
+  document.getElementById('filePreviewOverlay').style.display = 'none';
+}
+
+// Escape HTML
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ===================================================================
+// Skills
+// ===================================================================
+function renderSkills(skills) {
+  const container = document.getElementById('skillsContainer');
+  if (!skills || skills.length === 0) {
+    container.innerHTML = '<div style="padding:16px;font-size:13px;color:var(--text-muted);text-align:center;">No skills loaded. Add .skills/ directories.</div>';
+    return;
+  }
+  container.innerHTML = skills.map(s => `
+    <div class="skill-item">
+      <div class="skill-header">
+        <div>
+          <div class="skill-name">${escapeHtml(s.name)}</div>
+          <div class="skill-desc">${escapeHtml(s.description || 'No description')}</div>
+          ${s.error ? `<div class="skill-desc" style="color:var(--error)">Error: ${escapeHtml(s.error)}</div>` : ''}
+        </div>
+        <div class="toggle ${s.enabled ? 'active' : ''}" data-skill="${escapeHtml(s.name)}" onclick="toggleSkill('${escapeHtml(s.name)}', this)"></div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function toggleSkill(name, el) {
+  const enabled = !el.classList.contains('active');
+  el.classList.toggle('active', enabled);
+  sendWS({type: 'toggle_skill', name, enabled});
+}
+
+// ===================================================================
+// Settings
+// ===================================================================
+function loadSettingsUI() {
+  document.getElementById('setApiKey').value = state.settings.apiKey;
+  document.getElementById('setProvider').value = state.settings.provider;
+  document.getElementById('setModel').value = state.settings.model;
+  document.getElementById('setBaseURL').value = state.settings.baseUrl;
+  document.getElementById('setWorkspace').value = state.settings.workspace;
+}
+
+document.getElementById('saveSettings').addEventListener('click', () => {
+  state.settings.apiKey = document.getElementById('setApiKey').value;
+  state.settings.provider = document.getElementById('setProvider').value;
+  state.settings.model = document.getElementById('setModel').value;
+  state.settings.baseUrl = document.getElementById('setBaseURL').value;
+  state.settings.workspace = document.getElementById('setWorkspace').value;
+  localStorage.setItem('wa_api_key', state.settings.apiKey);
+  localStorage.setItem('wa_provider', state.settings.provider);
+  localStorage.setItem('wa_model', state.settings.model);
+  localStorage.setItem('wa_base_url', state.settings.baseUrl);
+  localStorage.setItem('wa_workspace', state.settings.workspace);
+  sendWS({type: 'settings_update', settings: state.settings});
+  if (wsPathInput) wsPathInput.value = state.settings.workspace;
+  loadFileTree();
+});
+
+loadSettingsUI();
+
+// ===================================================================
+// File Tree: Workspace Path
+// ===================================================================
+const wsPathInput = document.getElementById('wsPathInput');
+const openFolderBtn = document.getElementById('openFolderBtn');
+let _selectedFolderHint = '';
+
+// Initialize path input from saved settings
+function initWsPathInput() {
+  wsPathInput.value = state.settings.workspace || '';
+}
+initWsPathInput();
+// Load @mention file list on startup
+if (state.settings.workspace) loadMentionFiles();
+
+// Enter key to confirm path
+wsPathInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    const p = wsPathInput.value.trim();
+    if (p) applyWorkspace(p);
+  }
+});
+
+// Browse: open native OS dialog for folder selection
+async function openFolderPicker() {
+  // Show loading state
+  openFolderBtn.disabled = true;
+  openFolderBtn.style.opacity = '0.5';
+  openFolderBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" class="spin"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>';
+
+  try {
+    // Try backend endpoint (osascript/zenity/PowerShell) — returns real path
+    const resp = await fetch('/api/workspace/pick-folder');
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.path) {
+        restoreBrowseBtn();
+        applyWorkspace(data.path);
+        return;
+      }
+    }
+  } catch(e) {
+    // fall through
+  }
+
+  // Try showDirectoryPicker (Chrome/Edge native) — name only
+  if (window.showDirectoryPicker) {
+    try {
+      const h = await window.showDirectoryPicker({mode: 'read'});
+      restoreBrowseBtn();
+      wsPathInput.value = h.name;
+      wsPathInput.placeholder = 'Enter full path to ' + h.name;
+      wsPathInput.focus();
+      wsPathInput.select();
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') { restoreBrowseBtn(); return; }
+      // fall through
+    }
+  }
+
+  // Try <input webkitdirectory> (universal browser fallback) — name only
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.style.cssText = 'position:fixed;left:-9999px;top:-9999px;';
+  try { input.setAttribute('webkitdirectory', ''); } catch(e) {}
+  try { input.setAttribute('directory', ''); } catch(e) {}
+
+  input.addEventListener('change', () => {
+    document.body.removeChild(input);
+    restoreBrowseBtn();
+    try {
+      const f = input.files;
+      if (f && f.length > 0 && f[0].webkitRelativePath) {
+        const name = f[0].webkitRelativePath.split('/')[0];
+        wsPathInput.value = name;
+        wsPathInput.placeholder = 'Enter full path to ' + name;
+      }
+    } catch(e) {}
+    wsPathInput.focus();
+    wsPathInput.select();
+  }, {once: true});
+
+  // If the user cancels the file dialog, restore button
+  setTimeout(restoreBrowseBtn, 5000);
+
+  document.body.appendChild(input);
+  input.click();
+}
+
+function restoreBrowseBtn() {
+  openFolderBtn.disabled = false;
+  openFolderBtn.style.opacity = '1';
+  openFolderBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
+}
+
+openFolderBtn.addEventListener('click', openFolderPicker);
+
+function applyWorkspace(selectedPath) {
+  state.settings.workspace = selectedPath;
+  localStorage.setItem('wa_workspace', selectedPath);
+  wsPathInput.value = selectedPath;
+  sendWS({type: 'settings_update', settings: state.settings});
+  loadFileTree();
+  showBanner('success', 'Workspace set to ' + selectedPath);
+  setTimeout(() => hideBanner(), 3000);
+}
+
+// ===================================================================
+// WebSocket
+// ===================================================================
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = proto + '//' + location.host + '/ws';
+
+  if (state.ws) {
+    state.ws.onclose = null;
+    state.ws.close();
+  }
+
+  state.ws = new WebSocket(wsUrl);
+  state.connectionDot.className = 'connection-dot connecting';
+  state.connectionDot.title = 'Connecting...';
+
+  state.ws.onopen = () => {
+    state.connected = true;
+    state.reconnecting = false;
+    state.connectionDot.className = 'connection-dot connected';
+    state.connectionDot.title = 'Connected';
+    state.chatInput.disabled = false;
+    state.sendBtn.disabled = false;
+    showBanner('success', 'Connected');
+    setTimeout(() => hideBanner(), 2000);
+    // Always sync settings on connect (workspace, provider, etc.)
+    sendWS({type: 'settings_update', settings: state.settings});
+  };
+
+  state.ws.onclose = () => {
+    state.connected = false;
+    state.connectionDot.className = 'connection-dot disconnected';
+    state.connectionDot.title = 'Disconnected';
+    state.chatInput.disabled = true;
+    state.sendBtn.disabled = true;
+    if (!state.reconnecting) {
+      state.reconnecting = true;
+      showBanner('error', 'Connection lost. Reconnecting...');
+      setTimeout(connectWS, 2000);
+    }
+  };
+
+  state.ws.onerror = () => {
+    state.ws.close();
+  };
+
+  let askUserHandler = null;
+
+  state.ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    handleWSMessage(data);
+  };
+}
+
+function sendWS(data) {
+  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+    state.ws.send(JSON.stringify(data));
+  }
+}
+
+// ===================================================================
+// WebSocket Message Handler
+// ===================================================================
+let currentAssistantGroup = null;
+let currentThinkingEl = null;
+let currentTextEl = null;
+let currentToolEl = null;
+let currentToolResultEl = null;
+let streamBuffer = '';
+let streamRAF = null;
+
+function handleWSMessage(msg) {
+  switch (msg.type) {
+    case 'session_created':
+      state.sessionId = msg.session_id;
+      break;
+
+    case 'info':
+      showBanner('success', msg.message);
+      setTimeout(() => hideBanner(), 3000);
+      break;
+
+    case 'user_message':
+      addUserMessage(msg.text);
+      break;
+
+    case 'thinking_start':
+      startThinking();
+      break;
+
+    case 'thinking_delta':
+      appendThinking(msg.delta);
+      break;
+
+    case 'thinking_end':
+      endThinking();
+      break;
+
+    case 'text_delta':
+      appendText(msg.delta);
+      break;
+
+    case 'text_end':
+      endText();
+      break;
+
+    case 'tool_call_start':
+      startToolCall(msg.tool_call_id, msg.tool_name, msg.args);
+      break;
+
+    case 'tool_call_end':
+      endToolCall(msg.tool_call_id, msg.result, msg.elapsed);
+      break;
+
+    case 'tool_call_error':
+      errorToolCall(msg.tool_call_id, msg.error, msg.elapsed);
+      break;
+
+    case 'ask_user':
+      showAskUser(msg.tool_call_id, msg.question);
+      break;
+
+    case 'turn_complete':
+      endTurn();
+      loadFileTree();
+      break;
+
+    case 'error':
+      addErrorMessage(msg.message);
+      endTurn();
+      break;
+
+    case 'skills_updated':
+      state.skills = msg.skills || [];
+      renderSkills(state.skills);
+      refreshMentionSkills();
+      break;
+  }
+}
+
+// ===================================================================
+// Message Renderers
+// ===================================================================
+function addUserMessage(text) {
+  hideEmptyState();
+  const group = document.createElement('div');
+  group.className = 'message-group';
+  group.innerHTML = `
+    <div class="message user">
+      <div class="bubble">${escapeHtml(text)}</div>
+    </div>
+  `;
+  state.messagesContainer.appendChild(group);
+  scrollToBottom();
+}
+
+function addInfoMessage(text) {
+  hideEmptyState();
+  const div = document.createElement('div');
+  div.className = 'info-toast';
+  div.textContent = text;
+  state.messagesContainer.appendChild(div);
+  scrollToBottom();
+}
+
+function addErrorMessage(text) {
+  const div = document.createElement('div');
+  div.className = 'info-toast';
+  div.style.color = 'var(--error)';
+  div.textContent = 'Error: ' + text;
+  state.messagesContainer.appendChild(div);
+  scrollToBottom();
+}
+
+function startThinking() {
+  document.getElementById('processingBar').classList.add('active');
+  document.getElementById('chatStatusBar').classList.add('show');
+  hideEmptyState();
+  if (!currentAssistantGroup) {
+    currentAssistantGroup = document.createElement('div');
+    currentAssistantGroup.className = 'message-group';
+    state.messagesContainer.appendChild(currentAssistantGroup);
+  }
+  // Don't create the element until we actually get thinking content
+  currentThinkingEl = null;
+  state.processing = true;
+  updateInputState();
+}
+
+function appendThinking(text) {
+  if (!currentThinkingEl) {
+    // Create element on first content only
+    currentThinkingEl = document.createElement('div');
+    currentThinkingEl.className = 'thinking-block';
+    currentThinkingEl.innerHTML = '<span class="cursor">▌</span>';
+    currentAssistantGroup.appendChild(currentThinkingEl);
+    scrollToBottom();
+  }
+  const span = document.createElement('span');
+  span.textContent = text;
+  currentThinkingEl.insertBefore(span, currentThinkingEl.lastChild);
+  scrollToBottom();
+}
+
+function endThinking() {
+  if (currentThinkingEl) {
+    const cursor = currentThinkingEl.querySelector('.cursor');
+    if (cursor) cursor.remove();
+    // No need to show empty thinking block if no content
+    if (currentThinkingEl.childNodes.length <= 1) {
+      currentThinkingEl.remove();
+    }
+  }
+  currentThinkingEl = null;
+}
+
+function appendText(text) {
+  hideEmptyState();
+  if (!currentAssistantGroup) {
+    currentAssistantGroup = document.createElement('div');
+    currentAssistantGroup.className = 'message-group';
+    state.messagesContainer.appendChild(currentAssistantGroup);
+  }
+  if (!currentTextEl) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'message assistant';
+    wrapper.innerHTML = `<div class="message-avatar">A</div><div class="bubble"><div class="text-block"></div></div>`;
+    currentTextEl = wrapper.querySelector('.text-block');
+    currentAssistantGroup.appendChild(wrapper);
+  }
+  streamBuffer += text;
+  if (!streamRAF) {
+    streamRAF = requestAnimationFrame(flushStream);
+  }
+  scrollToBottom();
+}
+
+function flushStream() {
+  streamRAF = null;
+  if (!currentTextEl || !streamBuffer) return;
+  // We need to render markdown for each chunk. For performance, accumulate.
+  // Simple approach: append raw text and re-render full markdown
+  currentTextEl.dataset.md = (currentTextEl.dataset.md || '') + streamBuffer;
+  streamBuffer = '';
+  renderMarkdown(currentTextEl, currentTextEl.dataset.md);
+}
+
+function endText() {
+  if (streamRAF) {
+    cancelAnimationFrame(streamRAF);
+    streamRAF = null;
+  }
+  if (currentTextEl && currentTextEl.dataset.md) {
+    renderMarkdown(currentTextEl, currentTextEl.dataset.md);
+    delete currentTextEl.dataset.md;
+  }
+  currentTextEl = null;
+}
+
+function startToolCall(id, name, args) {
+  hideEmptyState();
+  state.pendingToolCallId = id;
+  state.pendingToolCallArgs = args;
+
+  if (!currentAssistantGroup) {
+    currentAssistantGroup = document.createElement('div');
+    currentAssistantGroup.className = 'message-group';
+    state.messagesContainer.appendChild(currentAssistantGroup);
+  }
+
+  const icons = {read_file:'🔍', write_file:'📝', edit_file:'✏️', bash:'💻', glob:'🔎', grep:'🔍', directory_list:'📂', ask_user:'❓'};
+  const icon = icons[name] || '🛠️';
+
+  const block = document.createElement('div');
+  block.className = 'tool-call-block';
+  block.dataset.id = id;
+  block.innerHTML = `
+    <div class="tool-call-header" onclick="this.parentElement.querySelector('.collapsible-body').classList.toggle('open')">
+      <span class="tool-call-icon">${icon}</span>
+      <span class="tool-call-name">${escapeHtml(name)}</span>
+      <span class="tool-call-status"><span class="spinner" style="display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;"></span></span>
+    </div>
+    <div class="collapsible-body">
+      <div class="tool-call-body"><pre>${escapeHtml(JSON.stringify(args, null, 2))}</pre></div>
+    </div>
+  `;
+  currentAssistantGroup.appendChild(block);
+  scrollToBottom();
+}
+
+function endToolCall(id, result, elapsed) {
+  const block = findToolBlock(id);
+  if (!block) return;
+  const status = block.querySelector('.tool-call-status');
+  const elapsedStr = elapsed ? ` <span class="tool-call-time">${elapsed}s</span>` : '';
+  if (status) status.innerHTML = `✅${elapsedStr}`;
+
+  const body = block.querySelector('.collapsible-body');
+  // Remove old result block if any
+  const oldResult = block.querySelector('.tool-result-block');
+  if (oldResult) oldResult.remove();
+  const oldHeader = block.querySelector('.tool-result-header');
+  if (oldHeader) oldHeader.remove();
+
+  const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+  const lines = text.split('\n').length;
+  const isLong = lines > 5 || text.length > 500;
+
+  // Summary line for collapsed state
+  const summary = document.createElement('div');
+  summary.className = 'tool-result-header';
+  summary.innerHTML = `<span class="chevron">▶</span> Result (${lines} lines)`;
+  body.appendChild(summary);
+
+  // Content (hidden by default if long)
+  const content = document.createElement('div');
+  content.className = 'tool-result-block success';
+  content.style.display = isLong ? 'none' : 'block';
+  const pre = document.createElement('pre');
+  pre.textContent = text;
+  content.appendChild(pre);
+  body.appendChild(content);
+
+  summary.addEventListener('click', () => {
+    const isOpen = content.style.display !== 'none';
+    content.style.display = isOpen ? 'none' : 'block';
+    summary.querySelector('.chevron').textContent = isOpen ? '▶' : '▼';
+  });
+
+  body.classList.add('open');
+  scrollToBottom();
+}
+
+function errorToolCall(id, error, elapsed) {
+  const block = findToolBlock(id);
+  if (!block) return;
+  const status = block.querySelector('.tool-call-status');
+  const elapsedStr = elapsed ? ` <span class="tool-call-time">${elapsed}s</span>` : '';
+  if (status) status.innerHTML = `❌${elapsedStr}`;
+
+  const body = block.querySelector('.collapsible-body');
+  // Remove old result
+  const oldResult = block.querySelector('.tool-result-block');
+  if (oldResult) oldResult.remove();
+  const oldHeader = block.querySelector('.tool-result-header');
+  if (oldHeader) oldHeader.remove();
+
+  const resultDiv = document.createElement('div');
+  resultDiv.className = 'tool-result-block error';
+  resultDiv.textContent = error || 'Unknown error';
+  body.appendChild(resultDiv);
+  body.classList.add('open');
+  scrollToBottom();
+}
+
+function findToolBlock(id) {
+  return currentAssistantGroup ? currentAssistantGroup.querySelector(`.tool-call-block[data-id="${id}"]`) : null;
+}
+
+function endTurn() {
+  document.getElementById('processingBar').classList.remove('active');
+  document.getElementById('chatStatusBar').classList.remove('show');
+  currentAssistantGroup = null;
+  currentThinkingEl = null;
+  currentTextEl = null;
+  currentToolEl = null;
+  state.processing = false;
+  updateInputState();
+}
+
+// ===================================================================
+// Ask User
+// ===================================================================
+function showAskUser(toolCallId, question) {
+  state.pendingAskId = toolCallId;
+  document.getElementById('askUserQuestion').textContent = question;
+  document.getElementById('askUserInput').value = '';
+  document.getElementById('askUserOverlay').classList.add('open');
+  document.getElementById('askUserInput').focus();
+}
+
+document.getElementById('askUserSubmit').addEventListener('click', () => {
+  const input = document.getElementById('askUserInput');
+  const text = input.value.trim();
+  if (!text) return;
+  document.getElementById('askUserOverlay').classList.remove('open');
+  sendWS({type: 'ask_user_response', text});
+});
+
+document.getElementById('askUserInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    document.getElementById('askUserSubmit').click();
+  }
+});
+
+// ===================================================================
+// @ File Mention & / Skill Command Autocomplete
+// ===================================================================
+let mentionFiles = [];
+let mentionSkills = [];
+let mentionActive = false;
+let mentionIdx = -1;
+let mentionStart = -1;
+let mentionTrigger = ''; // '@' or '/'
+let mentionItems = [];   // current filtered items
+let mentionQueryText = '';
+
+async function loadMentionFiles() {
+  if (!state.settings.workspace) return;
+  try {
+    const url = '/api/workspace/tree?workspace=' + encodeURIComponent(state.settings.workspace);
+    const resp = await fetch(url);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    mentionFiles = flattenTree(data.tree, '');
+  } catch(e) {}
+}
+
+function flattenTree(node, prefix) {
+  if (!node || node.type !== 'directory') return [];
+  let files = [];
+  (node.children || []).forEach(child => {
+    const path = prefix ? prefix + '/' + child.name : child.name;
+    if (child.type === 'file') {
+      files.push({name: child.name, path: path});
+    } else if (child.type === 'directory') {
+      files = files.concat(flattenTree(child, path));
+    }
+  });
+  return files;
+}
+
+// Skills available for / commands
+function refreshMentionSkills() {
+  mentionSkills = (state.skills || []).filter(s => s.enabled).map(s => ({
+    name: s.name,
+    description: s.description,
+  }));
+}
+
+function getMentionQuery() {
+  const el = state.chatInput;
+  const pos = el.selectionStart;
+  const val = el.value;
+  if (pos === 0) return null;
+  // Walk backwards from cursor to find '@' or '/'
+  let i = pos - 1;
+  let found = null;
+  while (i >= 0) {
+    if (val[i] === '@') { found = '@'; break; }
+    if (val[i] === '/') { found = '/'; break; }
+    if (val[i] === ' ' || val[i] === '\n') { i--; continue; }
+    break;
+  }
+  if (!found) return null;
+  // For @: must be at word boundary
+  if (found === '@' && i > 0 && !/\s/.test(val[i-1]) && val[i-1] !== '(' && val[i-1] !== '[') return null;
+  // For /: must be at start of line
+  if (found === '/' && i > 0 && val[i-1] !== '\n') return null;
+  const query = val.slice(i + 1, pos);
+  if (/[^\w.-]/.test(query)) return null;
+  return {trigger: found, start: i, query};
+}
+
+function showMentionDropdown(items) {
+  const dd = document.getElementById('mentionDropdown');
+  if (!items.length) { dd.classList.remove('show'); mentionActive = false; return; }
+  dd.innerHTML = items.map((f, i) => {
+    if (mentionTrigger === '/') {
+      return `<div class="mention-item${i === mentionIdx ? ' active' : ''}" data-index="${i}">
+        <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg></span>
+        <span class="name">${highlightMatch(f.name, mentionQueryText)}</span>
+        <span class="path">${f.description || ''}</span>
+      </div>`;
+    }
+    return `<div class="mention-item${i === mentionIdx ? ' active' : ''}" data-index="${i}">
+      <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
+      <span class="name">${highlightMatch(f.name, mentionQueryText)}</span>
+      <span class="path">${f.path}</span>
+    </div>`;
+  }).join('');
+  dd.classList.add('show');
+  mentionActive = true;
+}
+
+function highlightMatch(name, query) {
+  if (!query) return escapeHtml(name);
+  const idx = name.toLowerCase().indexOf(query.toLowerCase());
+  if (idx === -1) return escapeHtml(name);
+  return escapeHtml(name.slice(0, idx)) + '<span class="match">' + escapeHtml(name.slice(idx, idx + query.length)) + '</span>' + escapeHtml(name.slice(idx + query.length));
+}
+
+function handleMentionInput() {
+  const m = getMentionQuery();
+  if (!m) {
+    document.getElementById('mentionDropdown').classList.remove('show');
+    mentionActive = false;
+    return;
+  }
+  mentionTrigger = m.trigger;
+  mentionStart = m.start;
+  mentionQueryText = m.query;
+  mentionIdx = -1;
+
+  const q = m.query.toLowerCase();
+
+  if (m.trigger === '/') {
+    refreshMentionSkills();
+    if (!q) {
+      mentionItems = mentionSkills.slice(0, 20);
+    } else {
+      mentionItems = mentionSkills.filter(s =>
+        s.name.toLowerCase().includes(q)
+      ).slice(0, 20);
+    }
+  } else {
+    if (!q) {
+      mentionItems = mentionFiles.slice(0, 20);
+    } else {
+      mentionItems = mentionFiles.filter(f =>
+        f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q)
+      ).slice(0, 20);
+    }
+  }
+  showMentionDropdown(mentionItems);
+}
+
+function applyMention(item) {
+  const el = state.chatInput;
+  const val = el.value;
+  const before = val.slice(0, mentionStart);
+  const after = val.slice(el.selectionStart);
+  const insertion = mentionTrigger === '/' ? item.name : item.path;
+  el.value = before + mentionTrigger + insertion + ' ';
+  const newPos = (before + mentionTrigger + insertion + ' ').length;
+  el.setSelectionRange(newPos, newPos);
+  el.focus();
+  el.dispatchEvent(new Event('input'));
+  document.getElementById('mentionDropdown').classList.remove('show');
+  mentionActive = false;
+}
+
+// Hook into input
+state.chatInput.addEventListener('input', () => {
+  handleMentionInput();
+});
+
+state.chatInput.addEventListener('keydown', (e) => {
+  if (!mentionActive) return;
+  const items = document.querySelectorAll('.mention-item');
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    mentionIdx = Math.min(mentionIdx + 1, items.length - 1);
+    items.forEach((el, i) => el.classList.toggle('active', i === mentionIdx));
+    const active = items[mentionIdx];
+    if (active) active.scrollIntoView({block: 'nearest'});
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    mentionIdx = Math.max(mentionIdx - 1, -1);
+    items.forEach((el, i) => el.classList.toggle('active', i === mentionIdx));
+  } else if (e.key === 'Enter' || e.key === 'Tab') {
+    if (mentionIdx >= 0 && mentionIdx < items.length) {
+      e.preventDefault();
+      if (mentionItems[mentionIdx]) applyMention(mentionItems[mentionIdx]);
+    }
+  } else if (e.key === 'Escape') {
+    document.getElementById('mentionDropdown').classList.remove('show');
+    mentionActive = false;
+  }
+});
+
+// Click on mention item via delegation
+document.getElementById('mentionDropdown').addEventListener('click', (e) => {
+  const item = e.target.closest('.mention-item');
+  if (!item) return;
+  const idx = parseInt(item.dataset.index);
+  if (mentionItems[idx]) applyMention(mentionItems[idx]);
+});
+
+// Load files when workspace changes
+const origApplyWs = applyWorkspace;
+applyWorkspace = function(selectedPath) {
+  origApplyWs(selectedPath);
+  loadMentionFiles();
+};
+
+// ===================================================================
+// Input & Send
+// ===================================================================
+function updateInputState() {
+  state.chatInput.disabled = !state.connected;
+  state.sendBtn.disabled = !state.connected || state.processing;
+  state.abortBtn.style.display = state.processing ? 'flex' : 'none';
+  state.chatInput.placeholder = !state.connected ? 'Connecting...'
+    : state.processing ? 'Agent is working...'
+    : 'Type a message...';
+}
+
+function sendMessage() {
+  const text = state.chatInput.value.trim();
+  if (!text || state.processing || !state.connected) return;
+
+  state.chatInput.value = '';
+  state.chatInput.style.height = 'auto';
+  state.currentStreamText = '';
+  currentAssistantGroup = null;
+  currentThinkingEl = null;
+  currentTextEl = null;
+
+  sendWS({type: 'message', text});
+  updateInputState();
+}
+
+state.chatInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.defaultPrevented) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+
+state.sendBtn.addEventListener('click', sendMessage);
+
+// Auto-resize textarea
+state.chatInput.addEventListener('input', () => {
+  state.chatInput.style.height = 'auto';
+  state.chatInput.style.height = Math.min(state.chatInput.scrollHeight, 120) + 'px';
+});
+
+// ===================================================================
+// Abort
+// ===================================================================
+state.abortBtn.addEventListener('click', () => {
+  // We can't truly abort the server-side processing, but we
+  // prevent further UI updates and reset state
+  endTurn();
+});
+
+// ===================================================================
+// Markdown Renderer
+// ===================================================================
+// Configure marked once
+if (typeof marked !== 'undefined' && marked.setOptions) {
+  marked.setOptions({breaks: true, gfm: true});
+} else if (typeof marked !== 'undefined' && marked.use) {
+  marked.use({breaks: true, gfm: true});
+}
+
+function highlightCode(code, lang) {
+  // Simple keyword highlighting for common languages (no external deps)
+  const keywords = {
+    python: ['def', 'class', 'if', 'elif', 'else', 'for', 'while', 'return', 'import', 'from',
+             'try', 'except', 'finally', 'raise', 'with', 'as', 'in', 'not', 'and', 'or',
+             'True', 'False', 'None', 'async', 'await', 'pass', 'break', 'continue', 'yield',
+             'lambda', 'global', 'nonlocal', 'assert', 'del', 'print'],
+    javascript: ['function', 'const', 'let', 'var', 'if', 'else', 'for', 'while', 'return',
+                 'import', 'export', 'default', 'from', 'async', 'await', 'class', 'new',
+                 'this', 'try', 'catch', 'throw', 'typeof', 'instanceof', 'true', 'false',
+                 'null', 'undefined', 'switch', 'case', 'break', 'continue', 'yield'],
+  };
+  const langKeywords = keywords[lang] || keywords.python;
+  // Escape HTML
+  let html = code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // Strings (single/double quotes)
+  html = html.replace(/(["'`])(?:(?!\1|\\).|\\.)*\1/g, '<span class="hljs-string">$&</span>');
+  // Comments (# and //)
+  html = html.replace(/(#.*)$/gm, '<span class="hljs-comment">$1</span>');
+  html = html.replace(/(\/\/.*)$/gm, '<span class="hljs-comment">$1</span>');
+  // Keywords
+  const kwPattern = new RegExp('\\b(' + langKeywords.join('|') + ')\\b', 'g');
+  html = html.replace(kwPattern, '<span class="hljs-keyword">$1</span>');
+  // Numbers
+  html = html.replace(/\b(\d+\.?\d*)\b/g, '<span class="hljs-number">$1</span>');
+  return html;
+}
+
+function renderMarkdown(el, md) {
+  if (!md) { el.innerHTML = ''; return; }
+  if (typeof marked === 'undefined') {
+    el.textContent = md;
+    return;
+  }
+
+  try {
+    el.innerHTML = marked.parse(md);
+  } catch(e) {
+    el.textContent = md;
+    return;
+  }
+
+  // Apply syntax highlighting
+  el.querySelectorAll('pre code').forEach(block => {
+    const cls = block.className;
+    const lang = cls.replace('language-', '').trim() || '';
+    const raw = block.textContent || '';
+    block.innerHTML = highlightCode(raw, lang);
+  });
+}
+
+// ===================================================================
+// Helpers
+// ===================================================================
+function hideEmptyState() {
+  const es = state.emptyState;
+  if (es && es.parentNode) es.style.display = 'none';
+}
+
+function scrollToBottom() {
+  requestAnimationFrame(() => {
+    state.messagesContainer.scrollTop = state.messagesContainer.scrollHeight;
+  });
+}
+
+let bannerTimeout = null;
+function showBanner(type, text) {
+  const banner = state.connectionBanner;
+  banner.className = 'connection-banner show ' + type;
+  banner.textContent = text;
+  if (bannerTimeout) clearTimeout(bannerTimeout);
+}
+
+function hideBanner() {
+  state.connectionBanner.className = 'connection-banner';
+}
+
+// ===================================================================
+// Init
+// ===================================================================
+loadFileTree();
+connectWS();
+updateInputState();
+
+// Ping every 30s to keep connection alive
+setInterval(() => {
+  if (state.connected) sendWS({type: 'ping'});
+}, 30000);
+</script>
+</body>
+</html>

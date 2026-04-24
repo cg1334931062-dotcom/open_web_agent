@@ -1,0 +1,208 @@
+import time
+from pathlib import Path
+from typing import AsyncIterator
+
+from .llm import LLMClient, AnthropicClient, OpenAIClient
+from .tools import (
+    TOOL_DEFINITIONS, TOOL_FUNCTIONS,
+    ToolResult, ToolError, AskUserSignal,
+)
+from .skills import SkillRegistry
+
+
+SYSTEM_PROMPT_TEMPLATE = """You are an AI coding agent with full access to a Linux environment.
+
+ABILITIES:
+You can read, write, and edit files, execute bash commands, search files with glob and grep, and list directories. Use these tools to explore the codebase and accomplish the user's goals. Prefer exploring before making changes.
+
+RULES:
+1. THINK step by step before using any tool. Use the workspace to understand the codebase.
+2. For BASH commands:
+   - The CWD is {workspace_path}
+   - Commands run with a 30-second timeout
+   - Do NOT run interactive commands (vim, nano, top, etc.)
+   - NEVER run commands that modify system state outside the workspace
+3. For FILE operations:
+   - Always read a file before editing it
+   - Use edit_file for surgical changes, write_file for new files
+   - All paths are relative to the workspace root
+4. When you are unsure, use ask_user to clarify rather than guessing
+5. When you complete a task, summarize what you did
+6. ALWAYS respond in Chinese (中文). The user's primary language is Chinese. All explanations, summaries, and responses must be in Chinese, regardless of the language of the code or files being discussed.
+
+WORKSPACE:
+{workspace_path}"""
+
+
+class AgentSettings:
+    def __init__(
+        self,
+        provider: str = "anthropic",
+        api_key: str = "",
+        model: str = "",
+        base_url: str = "",
+        workspace_path: str = "",
+        skill_dirs: list[str] | None = None,
+    ):
+        self.provider = provider
+        self.api_key = api_key
+        self.model = model
+        self.base_url = base_url
+        self.workspace_path = workspace_path
+        self.skill_dirs = skill_dirs or []
+
+
+class Agent:
+    def __init__(self, settings: AgentSettings):
+        self.settings = settings
+        self.workspace = Path(settings.workspace_path).resolve() if settings.workspace_path else Path.cwd()
+        self.messages: list = []
+        self.llm: LLMClient | None = None
+        self.skills = SkillRegistry(
+            [Path(p) for p in settings.skill_dirs] if settings.skill_dirs else []
+        )
+        self._pending_tool_results: list[dict] = []
+
+    def initialize(self):
+        self.skills.discover()
+        self.llm = self._create_llm_client()
+
+    def _create_llm_client(self) -> LLMClient:
+        s = self.settings
+        if s.provider == "openai":
+            return OpenAIClient(api_key=s.api_key, model=s.model or "gpt-4o", base_url=s.base_url or None)
+        return AnthropicClient(api_key=s.api_key, model=s.model or "claude-sonnet-4-20250514", base_url=s.base_url or None)
+
+    def _build_system_prompt(self) -> str:
+        return SYSTEM_PROMPT_TEMPLATE.format(workspace_path=str(self.workspace))
+
+    def _get_tool_definitions(self):
+        tools = list(TOOL_DEFINITIONS)
+        tools.extend(self.skills.get_tool_definitions())
+        return tools
+
+    # ------------------------------------------------------------------ #
+    # Step-by-step agent operations (called by main.py agent_loop)
+    # ------------------------------------------------------------------ #
+
+    async def stream_llm_call(self) -> AsyncIterator[dict]:
+        """
+        Call LLM with current message history.
+        Yields events: text_delta, thinking_delta, tool_use_start
+        After iteration stops, the parsed result is available via .last_response property.
+        """
+        self._pending_text = []
+        self._pending_tool_uses = []
+
+        async for event in self.llm.stream_messages(
+            system=self._build_system_prompt(),
+            messages=self.messages,
+            tools=self._get_tool_definitions(),
+        ):
+            etype = event["type"]
+            if etype == "text_delta":
+                yield event
+            elif etype == "thinking_delta":
+                yield event
+            elif etype == "text_complete":
+                self._pending_text.append({"type": "text", "text": event["text"]})
+                yield {"type": "text_end"}
+            elif etype == "tool_use_start":
+                self._pending_tool_uses.append(event)
+                yield {
+                    "type": "tool_call_start",
+                    "tool_call_id": event["id"],
+                    "tool_name": event["name"],
+                    "args": event["input"],
+                }
+            elif etype == "error":
+                yield event
+
+    def commit_llm_response(self):
+        """Add the LLM's response (text + tool_uses) to conversation history."""
+        content_blocks = list(self._pending_text)
+        for tu in self._pending_tool_uses:
+            content_blocks.append({
+                "type": "tool_use",
+                "id": tu["id"],
+                "name": tu["name"],
+                "input": tu["input"],
+            })
+        self.messages.append({"role": "assistant", "content": content_blocks})
+
+    @property
+    def pending_tool_uses(self) -> list[dict]:
+        return self._pending_tool_uses
+
+    @property
+    def has_tool_uses(self) -> bool:
+        return len(self._pending_tool_uses) > 0
+
+    async def execute_tool(self, tool_call_id: str, name: str, args: dict) -> AsyncIterator[dict]:
+        """
+        Execute a single tool. Yields result events and returns the tool_result dict.
+        For ask_user tools, yields the ask_user event — the caller must handle
+        injecting the response via inject_ask_user_response() and re-calling LLM.
+        """
+        start = time.time()
+
+        # ask_user
+        if name == "ask_user":
+            yield {
+                "type": "ask_user",
+                "tool_call_id": tool_call_id,
+                "question": args.get("question", ""),
+            }
+            return
+
+        # Built-in tools
+        if name in TOOL_FUNCTIONS:
+            try:
+                result = await TOOL_FUNCTIONS[name](workspace=self.workspace, **args)
+            except ToolError as e:
+                yield {"type": "tool_call_error", "tool_call_id": tool_call_id, "error": str(e)}
+                self._inject_tool_result(tool_call_id, f"Error: {e}", is_error=True)
+                return
+            except Exception as e:
+                yield {"type": "tool_call_error", "tool_call_id": tool_call_id, "error": str(e)}
+                self._inject_tool_result(tool_call_id, f"Error: {e}", is_error=True)
+                return
+
+            elapsed = round(time.time() - start, 1)
+            if result.success:
+                yield {"type": "tool_call_end", "tool_call_id": tool_call_id, "result": result.output, "elapsed": elapsed}
+            else:
+                yield {"type": "tool_call_error", "tool_call_id": tool_call_id, "error": result.error or "unknown", "elapsed": elapsed}
+
+            self._inject_tool_result(
+                tool_call_id,
+                result.output if result.success else f"Error: {result.error}",
+                is_error=not result.success,
+            )
+            return
+
+        # Skill tools
+        skill_result = await self.skills.execute_skill(name, _workspace=self.workspace, **args)
+        yield {"type": "tool_call_end", "tool_call_id": tool_call_id, "result": skill_result}
+        self._inject_tool_result(tool_call_id, skill_result)
+
+    def _inject_tool_result(self, tool_call_id: str, content: str, is_error: bool = False):
+        self._pending_tool_results.append({
+            "type": "tool_result",
+            "tool_use_id": tool_call_id,
+            "content": content,
+            "is_error": is_error,
+        })
+
+    def flush_tool_results(self):
+        """Flush all pending tool results as a single user message."""
+        if self._pending_tool_results:
+            self.messages.append({
+                "role": "user",
+                "content": list(self._pending_tool_results),
+            })
+            self._pending_tool_results = []
+
+    def inject_ask_user_response(self, response: str, tool_call_id: str):
+        """Inject user's response to an ask_user question."""
+        self._inject_tool_result(tool_call_id, response)
