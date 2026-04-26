@@ -265,7 +265,12 @@ async def websocket_endpoint(ws: WebSocket):
             try:
                 await run_agent_turn(agent, send, session)
                 if not session.canceled:
-                    await send({"type": "turn_complete"})
+                    suggestions = []
+                    try:
+                        suggestions = await agent.generate_suggestions()
+                    except Exception:
+                        pass
+                    await send({"type": "turn_complete", "suggestions": suggestions})
             except asyncio.CancelledError:
                 pass
             except Exception as e:

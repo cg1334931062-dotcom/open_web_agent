@@ -151,6 +151,18 @@ TOOL_DEFINITIONS = [
             "required": ["question"],
         },
     },
+    {
+        "name": "web_search",
+        "description": "Search the internet for current information. Use this when you need up-to-date data, news, documentation, or any information outside the workspace. Always search in Chinese (中文) for best results with Chinese topics.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "The search query"},
+                "max_results": {"type": "number", "description": "Maximum results (default: 5, max: 10)"},
+            },
+            "required": ["query"],
+        },
+    },
 ]
 
 TOOL_NAME_MAP = {t["name"]: t for t in TOOL_DEFINITIONS}
@@ -313,6 +325,46 @@ async def ask_user(tool_call_id: str, question: str) -> ToolResult:
     raise AskUserSignal(tool_call_id=tool_call_id, question=question)
 
 
+async def web_search(query: str, workspace: Path, max_results: int = 5) -> ToolResult:
+    """Search DuckDuckGo for current information. Free, no API key needed."""
+    try:
+        from ddgs import DDGS
+    except ImportError:
+        try:
+            from duckduckgo_search import DDGS
+        except ImportError:
+            return ToolResult(success=False, error="Search library not installed. Run: pip install ddgs")
+
+    max_results = min(max(max_results, 1), 10)
+
+    def _search():
+        with DDGS() as ddgs:
+            return list(ddgs.text(query, max_results=max_results))
+
+    try:
+        loop = asyncio.get_event_loop()
+        results = await loop.run_in_executor(None, _search)
+
+        if not results:
+            return ToolResult(success=True, output="No results found.")
+
+        entries = []
+        for r in results:
+            title = r.get("title", "")
+            body = r.get("body", "")
+            href = r.get("href", "")
+            entries.append(f"Title: {title}\nURL: {href}\nSnippet: {body}")
+
+        output = f"Search results for \"{query}\":\n\n---\n\n" + "\n\n---\n\n".join(entries)
+        return ToolResult(success=True, output=output)
+
+    except Exception as e:
+        error_msg = str(e)
+        if "202" in error_msg or "ratelimit" in error_msg.lower() or "timeout" in error_msg.lower():
+            return ToolResult(success=False, error="Search temporarily unavailable due to rate limiting. Try a different query or wait a moment.")
+        return ToolResult(success=False, error=f"Search failed: {error_msg}")
+
+
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
@@ -326,4 +378,5 @@ TOOL_FUNCTIONS = {
     "grep": grep_tool,
     "directory_list": directory_list,
     "ask_user": ask_user,
+    "web_search": web_search,
 }

@@ -1,3 +1,5 @@
+import json
+import re
 import time
 from pathlib import Path
 from typing import AsyncIterator
@@ -213,3 +215,50 @@ class Agent:
     def inject_ask_user_response(self, response: str, tool_call_id: str):
         """Inject user's response to an ask_user question."""
         self._inject_tool_result(tool_call_id, response)
+
+    async def generate_suggestions(self) -> list[str]:
+        """Generate follow-up suggestion questions based on recent conversation."""
+        if not self.llm or len(self.messages) < 2:
+            return []
+
+        recent = self.messages[-4:]
+        context_parts = []
+        for m in recent:
+            role = m["role"]
+            content = m.get("content", "")
+            if isinstance(content, list):
+                texts = []
+                for b in content:
+                    if isinstance(b, dict) and b.get("type") == "text":
+                        texts.append(b.get("text", ""))
+                content = " ".join(texts)
+            content = str(content)[:600]
+            context_parts.append(f"[{role}]: {content}")
+        context_str = "\n".join(context_parts)
+
+        system = """You generate follow-up questions. Based on the last exchange, suggest 3 concise follow-up questions the user might ask next. Match the conversation language. Return ONLY a valid JSON array of strings, no markdown, no code fences. Example: ["Question 1?", "Question 2?", "Question 3?"]"""
+
+        msgs = [{"role": "user", "content": f"Suggest 3 follow-up questions for this conversation:\n{context_str}"}]
+
+        text_buf = []
+        try:
+            async for evt in self.llm.stream_messages(system=system, messages=msgs, tools=[]):
+                if evt["type"] == "text_delta":
+                    text_buf.append(evt["delta"])
+                elif evt["type"] == "error":
+                    return []
+            text = "".join(text_buf).strip()
+            # Strip markdown code fences if present
+            if text.startswith("```"):
+                text = text.split("\n", 1)[-1]
+                text = text.rsplit("```", 1)[0]
+            text = text.strip()
+            # Try to find a JSON array in the response
+            m = re.search(r'\[.*?\]', text, re.DOTALL)
+            if m:
+                parsed = json.loads(m.group())
+                if isinstance(parsed, list) and len(parsed) > 0:
+                    return [str(s)[:120] for s in parsed][:5]
+        except Exception:
+            pass
+        return []
