@@ -18,10 +18,10 @@ class LLMClient(ABC):
         """
         Yields event dicts with types:
           - {"type": "thinking_delta", "delta": str}
+          - {"type": "thinking_complete", "thinking": str}
           - {"type": "text_delta", "delta": str}
           - {"type": "text_complete", "text": str}
           - {"type": "tool_use_start", "id": str, "name": str, "input": dict}
-          - {"type": "tool_use_complete"}
           - {"type": "error", "message": str}
         """
         ...
@@ -59,7 +59,7 @@ class AnthropicClient(LLMClient):
             ) as stream:
                 current_tool_block = None
                 current_text = ""
-                has_thinking = False
+                current_thinking = ""
 
                 async for event in stream:
                     if event.type == "content_block_start":
@@ -72,13 +72,14 @@ class AnthropicClient(LLMClient):
                         elif event.content_block.type == "text":
                             current_text = ""
                         elif event.content_block.type == "thinking":
-                            has_thinking = True
+                            current_thinking = ""
 
                     elif event.type == "content_block_delta":
                         if event.delta.type == "text_delta":
                             current_text += event.delta.text
                             yield {"type": "text_delta", "delta": event.delta.text}
                         elif event.delta.type == "thinking_delta":
+                            current_thinking += event.delta.thinking
                             yield {"type": "thinking_delta", "delta": event.delta.thinking}
                         elif event.delta.type == "input_json_delta" and current_tool_block:
                             current_tool_block["input"] += event.delta.partial_json
@@ -99,10 +100,14 @@ class AnthropicClient(LLMClient):
                         elif current_text:
                             yield {"type": "text_complete", "text": current_text}
                             current_text = ""
+                        elif current_thinking:
+                            yield {"type": "thinking_complete", "thinking": current_thinking}
+                            current_thinking = ""
 
-                # If we had no tool_use and no text blocks, still mark text complete
                 if current_text:
                     yield {"type": "text_complete", "text": current_text}
+                if current_thinking:
+                    yield {"type": "thinking_complete", "thinking": current_thinking}
 
         except Exception as e:
             yield {"type": "error", "message": str(e)}
@@ -220,6 +225,7 @@ class OpenAIClient(LLMClient):
 
                 current_tool = None
                 current_text = ""
+                current_thinking = ""
 
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
@@ -233,17 +239,14 @@ class OpenAIClient(LLMClient):
                         continue
 
                     delta = chunk.get("choices", [{}])[0].get("delta", {})
-                    # Skip the initial OpenAI role marker chunk (only has "role":"assistant", no content/tool_calls)
                     if delta.get("role") and not delta.get("content") and not delta.get("reasoning_content") and not delta.get("tool_calls"):
                         continue
 
-                    # Reasoning content → thinking_delta, also accumulate in current_text
                     rc = delta.get("reasoning_content")
                     if rc:
-                        current_text += rc
+                        current_thinking += rc
                         yield {"type": "thinking_delta", "delta": rc}
 
-                    # Text content → text_delta
                     t = delta.get("content")
                     if t:
                         current_text += t
@@ -254,7 +257,6 @@ class OpenAIClient(LLMClient):
                         for tc in delta["tool_calls"]:
                             idx = tc.get("index", 0)
                             if tc.get("id"):
-                                # Start new tool call
                                 if current_tool:
                                     try:
                                         input_data = json.loads(current_tool["arguments"]) if current_tool["arguments"] else {}
@@ -274,7 +276,8 @@ class OpenAIClient(LLMClient):
                             elif current_tool:
                                 current_tool["arguments"] += tc["function"].get("arguments", "")
 
-                # Flush remaining
+                if current_thinking:
+                    yield {"type": "thinking_complete", "thinking": current_thinking}
                 if current_text:
                     yield {"type": "text_complete", "text": current_text}
                     current_text = ""

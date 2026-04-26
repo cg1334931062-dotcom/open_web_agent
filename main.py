@@ -11,11 +11,13 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 
 from agent.engine import Agent, AgentSettings
+from session_store import SessionStore
 
 
 HERE = Path(__file__).parent
 STATIC_DIR = HERE / "static"
 INDEX_HTML = STATIC_DIR / "index.html"
+DATA_DIR = HERE / "data"
 
 
 # ---------------------------------------------------------------------------
@@ -28,6 +30,7 @@ class SessionState:
     pending_ask_id: str | None = None
     canceled: bool = False
     message_checkpoint: int = 0  # index in agent.messages before current turn
+    had_ask_user: bool = False   # skip suggestions if turn involved ask_user
 
 
 class AppState:
@@ -36,8 +39,33 @@ class AppState:
         self.settings = AgentSettings(
             skill_dirs=[str(HERE / "skills")],
         )
+        self.store = SessionStore(str(DATA_DIR / "web-agent.db"))
+        self._store_ready = False
 
-    def create_session(self) -> tuple[str, SessionState]:
+    async def ensure_store(self):
+        """Lazily initialise the database on first use."""
+        if not self._store_ready:
+            await self.store.init()
+            self._store_ready = True
+
+    async def create_session(self, workspace_override: str = "") -> tuple[str, SessionState]:
+        sid = uuid.uuid4().hex[:12]
+        s = self.settings
+        wsp = workspace_override or s.workspace_path or str(Path.cwd())
+        settings = AgentSettings(
+            provider=s.provider, api_key=s.api_key, model=s.model,
+            base_url=s.base_url,
+            workspace_path=wsp,
+            skill_dirs=s.skill_dirs,
+        )
+        agent = Agent(settings)
+        agent.initialize()
+        session = SessionState(agent=agent)
+        self.sessions[sid] = session
+        return sid, session
+
+    def create_session_sync(self) -> tuple[str, SessionState]:
+        """Synchronous wrapper for legacy callers. Returns immediately."""
         sid = uuid.uuid4().hex[:12]
         s = self.settings
         settings = AgentSettings(
@@ -228,14 +256,72 @@ if ($f.ShowDialog() -eq "OK") { Write-Output $f.SelectedPath }
 
 
 # ---------------------------------------------------------------------------
+# Session history API
+# ---------------------------------------------------------------------------
+
+@app.get("/api/sessions")
+async def list_sessions():
+    await state.ensure_store()
+    sessions = await state.store.list_sessions()
+    return JSONResponse({"sessions": sessions})
+
+
+@app.delete("/api/sessions/{sid}")
+async def delete_session(sid: str):
+    await state.ensure_store()
+    deleted = await state.store.delete_session(sid)
+    if not deleted:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+    state.sessions.pop(sid, None)
+    return JSONResponse({"ok": True})
+
+
+@app.get("/api/sessions/{sid}/messages")
+async def get_session_messages(sid: str):
+    await state.ensure_store()
+    record = await state.store.get_session(sid)
+    if not record:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+    messages = await state.store.load_messages(sid)
+    return JSONResponse({"session": record, "messages": messages})
+
+
+# ---------------------------------------------------------------------------
 # WebSocket
 # ---------------------------------------------------------------------------
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
-    sid, session = state.create_session()
-    agent = session.agent
+
+    # Ensure DB is ready, then check for session resume
+    await state.ensure_store()
+    resume_sid = ws.query_params.get("session_id")
+    resume_messages: list | None = None
+
+    if resume_sid:
+        record = await state.store.get_session(resume_sid)
+        if record:
+            wsp = record.get("workspace", "")
+            sid, session = await state.create_session(workspace_override=wsp)
+            agent = session.agent
+            resume_messages = await state.store.load_messages(resume_sid)
+            agent.messages = resume_messages
+            # Re-init agent with stored provider/model
+            agent.settings.provider = record.get("provider", "anthropic")
+            agent.settings.model = record.get("model", "")
+            agent.settings.base_url = record.get("base_url", "")
+            agent.initialize()
+            # Remap to original session ID so DB writes target the right record
+            state.sessions.pop(sid, None)
+            sid = resume_sid
+            state.sessions[sid] = session
+        else:
+            sid, session = await state.create_session()
+            agent = session.agent
+    else:
+        sid, session = await state.create_session()
+        agent = session.agent
 
     async def send(event: dict):
         try:
@@ -246,6 +332,10 @@ async def websocket_endpoint(ws: WebSocket):
     try:
         await send({"type": "session_created", "session_id": sid})
         await send({"type": "info", "message": f"Connected. Workspace: {agent.workspace}"})
+
+        # Send history if resuming a session
+        if resume_messages:
+            await send({"type": "history", "messages": resume_messages})
 
         agent_task: asyncio.Task | None = None
 
@@ -261,21 +351,48 @@ async def websocket_endpoint(ws: WebSocket):
                 agent_task = None
 
         async def run_agent_in_background():
-            """Run agent turn and send turn_complete when done."""
+            """Run agent turn, persist messages, and send turn_complete."""
             try:
                 await run_agent_turn(agent, send, session)
+                # Skip turn_complete if paused for ask_user (will be resumed)
+                if session.pending_ask_id:
+                    return
                 if not session.canceled:
                     suggestions = []
-                    try:
-                        suggestions = await agent.generate_suggestions()
-                    except Exception:
-                        pass
+                    if not session.had_ask_user:
+                        try:
+                            suggestions = await agent.generate_suggestions()
+                        except Exception:
+                            pass
+                    session.had_ask_user = False
                     await send({"type": "turn_complete", "suggestions": suggestions})
+                    # Persist messages after turn completes
+                    asyncio.create_task(_persist_session())
             except asyncio.CancelledError:
                 pass
             except Exception as e:
                 print(f"Agent task error: {e}")
                 traceback.print_exc()
+
+        async def _persist_session():
+            """Fire-and-forget: save messages and update session timestamp."""
+            try:
+                await state.store.save_messages(sid, agent.messages)
+                await state.store.update_session(sid)
+            except Exception as e:
+                print(f"DB persist error: {e}")
+
+        # Fire-and-forget: create session record in DB
+        s_cfg = agent.settings
+        asyncio.create_task(
+            state.store.create_session(
+                sid=sid,
+                workspace=str(agent.workspace),
+                provider=s_cfg.provider,
+                model=s_cfg.model,
+                base_url=s_cfg.base_url or "",
+            )
+        )
 
         while True:
             raw = await ws.receive_text()
@@ -295,8 +412,10 @@ async def websocket_endpoint(ws: WebSocket):
                     workspace_path=s.get("workspace") or s.get("workspace_path") or state.settings.workspace_path or "",
                     skill_dirs=s.get("skill_dirs", state.settings.skill_dirs),
                 )
+                old_messages = agent.messages
                 new_agent = Agent(state.settings)
                 new_agent.initialize()
+                new_agent.messages = old_messages
                 session.agent = new_agent
                 agent = new_agent
                 await send({"type": "info", "message": "Settings updated"})
@@ -341,6 +460,12 @@ async def websocket_endpoint(ws: WebSocket):
                 session.message_checkpoint = len(agent.messages)
                 agent.messages.append({"role": "user", "content": text})
                 await send({"type": "user_message", "text": text})
+
+                # Auto-title: first user message becomes the session title
+                if len(agent.messages) == 1:
+                    title = text[:100].replace("\n", " ").strip()
+                    asyncio.create_task(state.store.update_session(sid, title=title))
+
                 agent_task = asyncio.create_task(run_agent_in_background())
 
     except WebSocketDisconnect:
@@ -353,6 +478,11 @@ async def websocket_endpoint(ws: WebSocket):
         except Exception:
             pass
     finally:
+        # Persist final state on disconnect, then clean up in-memory
+        try:
+            asyncio.create_task(state.store.save_messages(sid, agent.messages))
+        except Exception:
+            pass
         state.sessions.pop(sid, None)
 
 
@@ -410,6 +540,7 @@ async def run_agent_turn(agent: Agent, send, session: SessionState):
                 if event["type"] == "ask_user":
                     # Pause — wait for user response
                     session.pending_ask_id = tid
+                    session.had_ask_user = True
                     await send(event)
                     return  # will be resumed via ask_user_response
                 else:

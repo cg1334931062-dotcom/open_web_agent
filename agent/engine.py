@@ -65,6 +65,7 @@ class Agent:
             [Path(p) for p in settings.skill_dirs] if settings.skill_dirs else []
         )
         self._pending_tool_results: list[dict] = []
+        self._pending_thinking: list[dict] = []
 
     def initialize(self):
         self.skills.discover()
@@ -96,6 +97,7 @@ class Agent:
         """
         self._pending_text = []
         self._pending_tool_uses = []
+        self._pending_thinking = []
 
         async for event in self.llm.stream_messages(
             system=self._build_system_prompt(),
@@ -103,9 +105,11 @@ class Agent:
             tools=self._get_tool_definitions(),
         ):
             etype = event["type"]
-            if etype == "text_delta":
+            if etype == "thinking_delta":
                 yield event
-            elif etype == "thinking_delta":
+            elif etype == "thinking_complete":
+                self._pending_thinking.append({"type": "thinking", "thinking": event["thinking"]})
+            elif etype == "text_delta":
                 yield event
             elif etype == "text_complete":
                 self._pending_text.append({"type": "text", "text": event["text"]})
@@ -122,8 +126,9 @@ class Agent:
                 yield event
 
     def commit_llm_response(self):
-        """Add the LLM's response (text + tool_uses) to conversation history."""
-        content_blocks = list(self._pending_text)
+        """Add the LLM's response (thinking + text + tool_uses) to conversation history."""
+        content_blocks = list(self._pending_thinking)
+        content_blocks.extend(self._pending_text)
         for tu in self._pending_tool_uses:
             content_blocks.append({
                 "type": "tool_use",

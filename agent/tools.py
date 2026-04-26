@@ -163,6 +163,18 @@ TOOL_DEFINITIONS = [
             "required": ["query"],
         },
     },
+    {
+        "name": "web_fetch",
+        "description": "Fetch a URL and extract readable text content from the page. Use this after web_search when you need the full text of a specific page (documentation, API references, article text, etc.). Strips scripts, styles, and non-content HTML. Returns text truncated to max_chars.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The full URL to fetch (include https://)"},
+                "max_chars": {"type": "number", "description": "Maximum characters to return (default: 10000, max: 50000)"},
+            },
+            "required": ["url"],
+        },
+    },
 ]
 
 TOOL_NAME_MAP = {t["name"]: t for t in TOOL_DEFINITIONS}
@@ -365,6 +377,134 @@ async def web_search(query: str, workspace: Path, max_results: int = 5) -> ToolR
         return ToolResult(success=False, error=f"Search failed: {error_msg}")
 
 
+async def web_fetch(url: str, workspace: Path, max_chars: int = 10000) -> ToolResult:
+    """Fetch a URL and extract readable text content from HTML.
+
+    Uses httpx for HTTP requests and Python stdlib HTMLParser for text extraction.
+    Strips scripts, styles, and other non-content tags. Runs synchronously in a
+    thread pool to avoid blocking the event loop.
+    """
+    import re
+    import httpx
+    from html.parser import HTMLParser
+
+    class _TextExtractor(HTMLParser):
+        SKIP_TAGS = {"script", "style", "noscript", "iframe", "svg", "head"}
+
+        def __init__(self):
+            super().__init__()
+            self._parts: list[str] = []
+            self._skip_depth = 0
+            self._last_block = False
+
+        def handle_starttag(self, tag: str, _attrs) -> None:
+            if tag in self.SKIP_TAGS:
+                self._skip_depth += 1
+
+        def handle_endtag(self, tag: str) -> None:
+            if tag in self.SKIP_TAGS and self._skip_depth > 0:
+                self._skip_depth -= 1
+            if self._skip_depth == 0 and tag in {
+                "p", "div", "li", "h1", "h2", "h3", "h4", "h5", "h6",
+                "br", "tr", "article", "section", "header", "footer",
+                "main", "nav", "aside", "ul", "ol", "table", "pre",
+                "blockquote", "hr",
+            }:
+                self._parts.append("\n")
+
+        def handle_data(self, data: str) -> None:
+            if self._skip_depth > 0:
+                return
+            text = data.strip()
+            if text:
+                self._parts.append(text + " ")
+
+        def get_text(self) -> str:
+            raw = "".join(self._parts)
+            raw = re.sub(r" +", " ", raw)
+            raw = re.sub(r" *\n *", "\n", raw)
+            raw = re.sub(r"\n{3,}", "\n\n", raw)
+            return raw.strip()
+
+    max_chars = min(max(max_chars, 100), 50000)
+
+    def _fetch() -> str:
+        with httpx.Client(
+            timeout=httpx.Timeout(15.0, connect=10.0),
+            follow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; WebAgent/1.0)"},
+        ) as client:
+            response = client.get(url)
+            response.raise_for_status()
+
+            content_type = response.headers.get("content-type", "").lower()
+
+            if "text/plain" in content_type:
+                text = response.text
+                if len(text) > max_chars:
+                    text = text[:max_chars] + (
+                        f"\n\n... (truncated to {max_chars} chars)"
+                    )
+                return text
+
+            if "text/html" not in content_type and "application/xhtml" not in content_type:
+                preview = response.text[:500]
+                return f"[Content type: {content_type}]\n\n{preview}"
+
+            html = response.text
+            if len(html) > 5_000_000:
+                return (
+                    f"[Response too large: {len(html)} bytes. "
+                    f"Maximum 5 MB per fetch. Try a different URL.]"
+                )
+
+            extractor = _TextExtractor()
+            try:
+                extractor.feed(html)
+            except Exception:
+                pass
+
+            text = extractor.get_text()
+
+            if len(text) > max_chars:
+                text = text[:max_chars] + (
+                    f"\n\n... (truncated to {max_chars} chars)"
+                )
+
+            return text
+
+    try:
+        loop = asyncio.get_event_loop()
+        result_text = await loop.run_in_executor(None, _fetch)
+        return ToolResult(success=True, output=result_text)
+
+    except httpx.TimeoutException:
+        return ToolResult(
+            success=False,
+            error=f"Request timed out after 15 seconds for URL: {url}",
+        )
+    except httpx.ConnectError:
+        return ToolResult(
+            success=False,
+            error=f"Connection failed. Could not reach: {url}",
+        )
+    except httpx.HTTPStatusError as e:
+        return ToolResult(
+            success=False,
+            error=f"HTTP {e.response.status_code} for URL: {url}",
+        )
+    except httpx.InvalidURL:
+        return ToolResult(
+            success=False,
+            error=f"Invalid URL: {url}",
+        )
+    except Exception as e:
+        return ToolResult(
+            success=False,
+            error=f"Fetch failed for {url}: {e}",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
@@ -379,4 +519,5 @@ TOOL_FUNCTIONS = {
     "directory_list": directory_list,
     "ask_user": ask_user,
     "web_search": web_search,
+    "web_fetch": web_fetch,
 }
