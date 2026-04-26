@@ -128,34 +128,61 @@ class OpenAIClient(LLMClient):
         oai_messages = [{"role": "system", "content": system}]
         for msg in messages:
             role = msg["role"]
+            raw_content = msg.get("content", "")
+
             if role == "assistant":
-                content = []
-                for block in msg.get("content", []):
-                    if block["type"] == "text":
-                        content.append({"type": "text", "text": block["text"]})
-                    elif block["type"] == "tool_use":
-                        content.append({
-                            "type": "tool_use",
-                            "id": block["id"],
-                            "function": {"name": block["name"], "arguments": json.dumps(block["input"])},
+                # Content can be a string or a list of blocks
+                if isinstance(raw_content, str):
+                    oai_messages.append({"role": "assistant", "content": raw_content or ""})
+                    continue
+                # Separate text content from tool_use blocks
+                text_parts = []
+                tool_calls = []
+                for block in raw_content:
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get("type") == "text":
+                        text_parts.append(block.get("text", ""))
+                    elif block.get("type") == "tool_use":
+                        tool_calls.append({
+                            "id": block.get("id", ""),
+                            "type": "function",
+                            "function": {
+                                "name": block.get("name", ""),
+                                "arguments": json.dumps(block.get("input", {})),
+                            },
                         })
-                    elif block["type"] == "thinking":
+                    elif block.get("type") == "thinking":
                         pass  # skip Anthropic-specific blocks
-                oai_messages.append({"role": "assistant", "content": content or [{"type": "text", "text": ""}]})
+                msg_body = {"role": "assistant", "content": "".join(text_parts) or ""}
+                if tool_calls:
+                    msg_body["tool_calls"] = tool_calls
+                oai_messages.append(msg_body)
+
             elif role == "user":
-                content = []
-                for block in msg.get("content", []):
-                    if block["type"] == "text":
-                        content.append({"type": "text", "text": block["text"]})
-                    elif block["type"] == "tool_result":
-                        content.append({
-                            "type": "tool_result",
-                            "tool_use_id": block["tool_use_id"],
-                            "content": block["content"],
+                # Content can be a string or a list of blocks (with tool_result)
+                if isinstance(raw_content, str):
+                    oai_messages.append({"role": "user", "content": raw_content})
+                    continue
+                # Split tool_result blocks into separate tool-role messages
+                text_parts = []
+                for block in raw_content:
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get("type") == "text":
+                        text_parts.append(block.get("text", ""))
+                    elif block.get("type") == "tool_result":
+                        # OpenAI uses separate "tool" role messages
+                        oai_messages.append({
+                            "role": "tool",
+                            "tool_call_id": block.get("tool_use_id", ""),
+                            "content": block.get("content", ""),
                         })
-                    elif block["type"] == "thinking":
+                    elif block.get("type") == "thinking":
                         pass
-                oai_messages.append({"role": "user", "content": content})
+                if text_parts:
+                    oai_messages.append({"role": "user", "content": "".join(text_parts)})
+                # If only tool_results, no user message needed
 
         # Convert tools to OpenAI format
         oai_tools = []
@@ -206,14 +233,21 @@ class OpenAIClient(LLMClient):
                         continue
 
                     delta = chunk.get("choices", [{}])[0].get("delta", {})
-                    if delta.get("role") == "assistant":
-                        continue  # skip role marker
+                    # Skip the initial OpenAI role marker chunk (only has "role":"assistant", no content/tool_calls)
+                    if delta.get("role") and not delta.get("content") and not delta.get("reasoning_content") and not delta.get("tool_calls"):
+                        continue
 
-                    # Text content
-                    if delta.get("content"):
-                        text = delta["content"]
-                        current_text += text
-                        yield {"type": "text_delta", "delta": text}
+                    # Reasoning content → thinking_delta, also accumulate in current_text
+                    rc = delta.get("reasoning_content")
+                    if rc:
+                        current_text += rc
+                        yield {"type": "thinking_delta", "delta": rc}
+
+                    # Text content → text_delta
+                    t = delta.get("content")
+                    if t:
+                        current_text += t
+                        yield {"type": "text_delta", "delta": t}
 
                     # Tool calls
                     if delta.get("tool_calls"):

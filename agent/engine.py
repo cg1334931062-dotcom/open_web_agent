@@ -29,6 +29,7 @@ RULES:
 4. When you are unsure, use ask_user to clarify rather than guessing
 5. When you complete a task, summarize what you did
 6. ALWAYS respond in Chinese (中文). The user's primary language is Chinese. All explanations, summaries, and responses must be in Chinese, regardless of the language of the code or files being discussed.
+7. Your thinking and reasoning process must also be in Chinese (中文). Think step by step in Chinese.
 
 WORKSPACE:
 {workspace_path}"""
@@ -145,6 +146,12 @@ class Agent:
         injecting the response via inject_ask_user_response() and re-calling LLM.
         """
         start = time.time()
+
+        # Ensure args is a dict
+        if not isinstance(args, dict):
+            yield {"type": "tool_call_error", "tool_call_id": tool_call_id, "error": f"Invalid args type: {type(args).__name__}"}
+            self._inject_tool_result(tool_call_id, f"Error: args must be a dict, got {type(args).__name__}", is_error=True)
+            return
 
         # ask_user
         if name == "ask_user":

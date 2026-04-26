@@ -166,6 +166,25 @@ body {
   flex: 1; overflow-y: auto; padding: 16px 0; position: relative;
   scroll-behavior: smooth;
 }
+/* Scroll to bottom button */
+.scroll-bottom-btn {
+  position: absolute;
+  right: 20px;
+  bottom: 100%;
+  margin-bottom: 8px;
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  z-index: 5;
+  transition: opacity 0.2s;
+}
+.scroll-bottom-btn:hover { color: var(--accent); border-color: var(--accent); }
+
 .chat-status-bar {
   display: none;
   align-items: center;
@@ -249,8 +268,10 @@ body {
 }
 .message.assistant .bubble {
   max-width: 90%;
+  width: 100%;
   font-size: 14px; line-height: 1.6;
 }
+.message.assistant .bubble > * { width: 100%; }
 .message-avatar {
   width: 28px; height: 28px; border-radius: 6px;
   display: flex; align-items: center; justify-content: center;
@@ -317,26 +338,78 @@ body {
 
 /* Tool Call Block */
 .tool-call-block {
-  margin: 4px 0;
-  border: 1px solid var(--border);
+  margin: 5px 0;
   border-radius: 8px;
   overflow: hidden;
+  position: relative;
 }
+.tool-call-block::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  border-radius: 3px 0 0 3px;
+}
+.tool-call-block.type-tool::before { background: var(--accent); }
+.tool-call-block.type-skill::before { background: var(--success); }
 .tool-call-header {
   display: flex; align-items: center; gap: 8px;
-  padding: 8px 12px;
+  padding: 8px 12px 8px 15px;
   background: var(--bg-tertiary);
   cursor: pointer;
   user-select: none;
   font-size: 13px;
   font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: border-radius 0.15s;
+}
+.tool-call-block.has-body .tool-call-header {
+  border-radius: 8px 8px 0 0;
+  border-bottom: none;
 }
 .tool-call-header:hover { background: var(--bg-hover); }
-.tool-call-icon { width: 16px; height: 16px; flex-shrink: 0; }
-.tool-call-name { color: var(--accent); font-weight: 600; }
+.tool-call-icon { width: 18px; height: 18px; flex-shrink: 0; }
+.tool-call-icon.tool-icon { color: var(--accent); }
+.tool-call-icon.skill-icon { color: var(--success); }
+.tool-call-name { color: var(--text-primary); font-weight: 600; font-size: 13px; }
+.tool-call-badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  line-height: 1.6;
+}
+.tool-call-badge.builtin { background: var(--accent-subtle); color: var(--accent); }
+.tool-call-badge.skill { background: var(--success-bg); color: var(--success); }
 .tool-call-status { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 .tool-call-time { color: var(--text-muted); font-size: 11px; }
 .spinner { animation: spin 1s linear infinite; }
+
+/* Tool body */
+.tool-call-block .collapsible-body {
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+}
+.tool-call-block.type-tool .collapsible-body { border-color: var(--border); }
+.tool-call-block.type-skill .collapsible-body { border-color: var(--border); }
+
+/* Tool args in body */
+.tool-call-args {
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border);
+}
+.tool-call-args pre { white-space: pre-wrap; word-break: break-all; margin: 0; }
+.tool-arg-key { color: var(--accent); }
+.tool-arg-value { color: #a5d6ff; }
+.tool-arg-sep { color: var(--text-muted); }
 
 /* Syntax highlighting keyword colors */
 .hljs-keyword { color: #ff7b72; }
@@ -349,13 +422,12 @@ body {
   font-family: var(--font-mono); font-size: 12px;
   line-height: 1.5;
   max-height: 400px; overflow-y: auto;
-  border-top: 1px solid var(--border);
 }
 .tool-result-block pre {
   margin: 0; padding: 8px 12px;
   white-space: pre-wrap; word-break: break-all;
 }
-.tool-result-block.success { background: var(--success-bg); }
+.tool-result-block.success { background: var(--success-bg); color: var(--text-primary); }
 .tool-result-block.error { background: var(--error-bg); color: var(--error); }
 .tool-result-header {
   display: flex; align-items: center; gap: 6px;
@@ -366,7 +438,7 @@ body {
   background: var(--bg-secondary);
 }
 .tool-result-header:hover { background: var(--bg-hover); }
-.tool-result-header .chevron { transition: transform 0.15s; width: 12px; height: 12px; }
+.tool-result-header .chevron { transition: transform 0.15s; width: 12px; height: 12px; flex-shrink:0; }
 .tool-result-header .chevron.open { transform: rotate(90deg); }
 
 /* Dir browser */
@@ -542,6 +614,82 @@ body {
   transition: opacity 0.2s;
 }
 .processing-bar.active { opacity: 1; }
+
+/* Tool Activity Bar - shows below processing bar */
+.tool-activity {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  right: 0;
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 16px;
+  height: 0;
+  overflow: hidden;
+  transition: height 0.2s, padding 0.2s;
+  z-index: 19;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+.tool-activity.show {
+  display: flex;
+  height: 26px;
+  padding: 3px 16px;
+}
+.tool-activity-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.tool-activity-chips {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  flex: 1;
+}
+.tool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 4px;
+  white-space: nowrap;
+  animation: chipIn 0.2s ease-out;
+}
+.tool-chip.tool-chip-running {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border: 1px solid rgba(88,166,255,0.2);
+}
+.tool-chip.tool-chip-done {
+  background: var(--success-bg);
+  color: var(--success);
+  border: 1px solid rgba(63,185,80,0.2);
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+.tool-chip.tool-chip-error {
+  background: var(--error-bg);
+  color: var(--error);
+  border: 1px solid rgba(248,81,73,0.2);
+}
+.tool-chip .chip-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.tool-chip.tool-chip-running .chip-dot { animation: pulse 1s infinite; }
+@keyframes chipIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.9); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 @keyframes processingSlide {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
@@ -703,13 +851,20 @@ body {
   <div class="connection-banner" id="connectionBanner"></div>
   <div class="chat-messages" id="chatMessages">
     <div class="processing-bar" id="processingBar"></div>
+    <div class="tool-activity" id="toolActivity">
+      <span class="tool-activity-label">Tools</span>
+      <div class="tool-activity-chips" id="toolActivityChips"></div>
+    </div>
     <div class="empty-state" id="emptyState">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       <h3>Start a conversation</h3>
       <p>Send a message and the agent will help you with code.</p>
     </div>
   </div>
-  <div class="chat-status-bar" id="chatStatusBar">
+  <button class="scroll-bottom-btn" id="scrollBottomBtn" style="display:none" onclick="scrollToBottom(true)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><polyline points="7 13 12 18 17 13"/><polyline points="7 6 12 11 17 6"/></svg>
+  </button>
+  <div class="chat-status-bar" id="chatStatusBar">">
     <span class="chat-status-dot"></span>
     <span class="chat-status-text">AI is running...</span>
   </div>
@@ -761,6 +916,7 @@ const state = {
   connected: false,
   reconnecting: false,
   processing: false,
+  userScrolledUp: false,
   pendingToolCallId: null,
   pendingToolCallArgs: {},
   currentStreamText: null,
@@ -826,7 +982,7 @@ async function loadFileTree() {
     container.innerHTML = '<div style="padding:24px 16px;text-align:center;"><div style="font-size:32px;margin-bottom:8px;opacity:0.4;">📂</div><div style="font-size:13px;color:var(--text-secondary);margin-bottom:4px;">No workspace folder</div><div style="font-size:12px;color:var(--text-muted);">Click the folder icon above to open one</div></div>';
     return;
   }
-  container.innerHTML = '<div class="skeleton skeleton-line w80"></div><div class="skeleton skeleton-line w60"></div><div class="skeleton skeleton-line w80"></div>';
+  container.innerHTML = '<div></div><div></div><div></div>';
   try {
     // Pass workspace path directly to avoid race condition with WS settings
     const url = '/api/workspace/tree?workspace=' + encodeURIComponent(state.settings.workspace);
@@ -1167,6 +1323,7 @@ let currentToolEl = null;
 let currentToolResultEl = null;
 let streamBuffer = '';
 let streamRAF = null;
+let toolChips = {}; // tool_name -> {el, status}
 
 function handleWSMessage(msg) {
   switch (msg.type) {
@@ -1271,16 +1428,34 @@ function addErrorMessage(text) {
   scrollToBottom();
 }
 
-function startThinking() {
-  document.getElementById('processingBar').classList.add('active');
-  document.getElementById('chatStatusBar').classList.add('show');
-  hideEmptyState();
+// Ensure the assistant message container and bubble exist
+function ensureAssistantContainer() {
   if (!currentAssistantGroup) {
     currentAssistantGroup = document.createElement('div');
     currentAssistantGroup.className = 'message-group';
     state.messagesContainer.appendChild(currentAssistantGroup);
   }
-  // Don't create the element until we actually get thinking content
+  // Find or create the single .message.assistant > .bubble for this group
+  let bubble = currentAssistantGroup._bubble;
+  if (!bubble) {
+    let msgEl = currentAssistantGroup.querySelector(':scope > .message.assistant');
+    if (!msgEl) {
+      msgEl = document.createElement('div');
+      msgEl.className = 'message assistant';
+      msgEl.innerHTML = '<div class="message-avatar">A</div><div class="bubble"></div>';
+      currentAssistantGroup.appendChild(msgEl);
+    }
+    bubble = msgEl.querySelector('.bubble');
+    currentAssistantGroup._bubble = bubble;
+  }
+  return bubble;
+}
+
+function startThinking() {
+  document.getElementById('processingBar').classList.add('active');
+  document.getElementById('chatStatusBar').classList.add('show');
+  hideEmptyState();
+  ensureAssistantContainer();
   currentThinkingEl = null;
   state.processing = true;
   updateInputState();
@@ -1288,11 +1463,16 @@ function startThinking() {
 
 function appendThinking(text) {
   if (!currentThinkingEl) {
-    // Create element on first content only
     currentThinkingEl = document.createElement('div');
     currentThinkingEl.className = 'thinking-block';
     currentThinkingEl.innerHTML = '<span class="cursor">▌</span>';
-    currentAssistantGroup.appendChild(currentThinkingEl);
+    // Insert thinking BEFORE the .message.assistant so it stays above the bubble
+    const msgEl = currentAssistantGroup.querySelector('.message.assistant');
+    if (msgEl) {
+      currentAssistantGroup.insertBefore(currentThinkingEl, msgEl);
+    } else {
+      currentAssistantGroup.appendChild(currentThinkingEl);
+    }
     scrollToBottom();
   }
   const span = document.createElement('span');
@@ -1305,7 +1485,6 @@ function endThinking() {
   if (currentThinkingEl) {
     const cursor = currentThinkingEl.querySelector('.cursor');
     if (cursor) cursor.remove();
-    // No need to show empty thinking block if no content
     if (currentThinkingEl.childNodes.length <= 1) {
       currentThinkingEl.remove();
     }
@@ -1315,17 +1494,11 @@ function endThinking() {
 
 function appendText(text) {
   hideEmptyState();
-  if (!currentAssistantGroup) {
-    currentAssistantGroup = document.createElement('div');
-    currentAssistantGroup.className = 'message-group';
-    state.messagesContainer.appendChild(currentAssistantGroup);
-  }
+  const bubble = ensureAssistantContainer();
   if (!currentTextEl) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'message assistant';
-    wrapper.innerHTML = `<div class="message-avatar">A</div><div class="bubble"><div class="text-block"></div></div>`;
-    currentTextEl = wrapper.querySelector('.text-block');
-    currentAssistantGroup.appendChild(wrapper);
+    currentTextEl = document.createElement('div');
+    currentTextEl.className = 'text-block';
+    bubble.appendChild(currentTextEl);
   }
   streamBuffer += text;
   if (!streamRAF) {
@@ -1337,8 +1510,6 @@ function appendText(text) {
 function flushStream() {
   streamRAF = null;
   if (!currentTextEl || !streamBuffer) return;
-  // We need to render markdown for each chunk. For performance, accumulate.
-  // Simple approach: append raw text and re-render full markdown
   currentTextEl.dataset.md = (currentTextEl.dataset.md || '') + streamBuffer;
   streamBuffer = '';
   renderMarkdown(currentTextEl, currentTextEl.dataset.md);
@@ -1356,34 +1527,98 @@ function endText() {
   currentTextEl = null;
 }
 
+const BUILTIN_TOOLS = new Set(['read_file','write_file','edit_file','bash','glob','grep','directory_list','ask_user']);
+
+// Tool chip management
+function addToolChip(name, status) {
+  const container = document.getElementById('toolActivityChips');
+  const chip = document.createElement('span');
+  chip.className = `tool-chip tool-chip-${status}`;
+  chip.dataset.tool = name;
+  chip.innerHTML = `<span class="chip-dot"></span>${escapeHtml(name)}`;
+  // Avoid duplicates - remove old chip if exists
+  const old = container.querySelector(`[data-tool="${CSS.escape(name)}"]`);
+  if (old) old.remove();
+  container.appendChild(chip);
+  toolChips[name] = { el: chip, status };
+  document.getElementById('toolActivity').classList.add('show');
+}
+function updateToolChip(name, status) {
+  if (toolChips[name]) {
+    toolChips[name].el.className = `tool-chip tool-chip-${status}`;
+    toolChips[name].status = status;
+  } else {
+    addToolChip(name, status);
+  }
+}
+function clearToolChips() {
+  document.getElementById('toolActivityChips').innerHTML = '';
+  document.getElementById('toolActivity').classList.remove('show');
+  toolChips = {};
+}
+
+// SVG icons for built-in tools
+const TOOL_ICONS = {
+  read_file:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
+  write_file:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>',
+  edit_file:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+  bash:        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+  glob:        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  grep:        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>',
+  directory_list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
+  ask_user:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+};
+const SKILL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>';
+
 function startToolCall(id, name, args) {
   hideEmptyState();
   state.pendingToolCallId = id;
   state.pendingToolCallArgs = args;
 
-  if (!currentAssistantGroup) {
-    currentAssistantGroup = document.createElement('div');
-    currentAssistantGroup.className = 'message-group';
-    state.messagesContainer.appendChild(currentAssistantGroup);
+  // Use the same container as text blocks
+  const bubble = ensureAssistantContainer();
+
+  // Show tool chip in activity bar
+  addToolChip(name, 'running');
+
+  const isBuiltin = BUILTIN_TOOLS.has(name);
+  const typeClass = isBuiltin ? 'type-tool' : 'type-skill';
+  const iconClass = isBuiltin ? 'tool-icon' : 'skill-icon';
+  const badgeClass = isBuiltin ? 'builtin' : 'skill';
+  const badgeText = isBuiltin ? 'TOOL' : 'SKILL';
+  const svgIcon = isBuiltin ? (TOOL_ICONS[name] || TOOL_ICONS.bash) : SKILL_ICON;
+
+  // Format args nicely for display
+  let argsHtml = '';
+  if (args && typeof args === 'object') {
+    const entries = Object.entries(args).filter(([k]) => k !== '_workspace');
+    if (entries.length > 0) {
+      argsHtml = entries.map(([k, v]) => {
+        // Truncate long values
+        let valStr = typeof v === 'string' ? v : JSON.stringify(v);
+        if (valStr.length > 120) valStr = valStr.slice(0, 120) + '...';
+        return `<span class="tool-arg-key">${escapeHtml(k)}</span><span class="tool-arg-sep"> = </span><span class="tool-arg-value">${escapeHtml(valStr)}</span>`;
+      }).join('<br>');
+    }
   }
 
-  const icons = {read_file:'🔍', write_file:'📝', edit_file:'✏️', bash:'💻', glob:'🔎', grep:'🔍', directory_list:'📂', ask_user:'❓'};
-  const icon = icons[name] || '🛠️';
+  const hasBody = argsHtml.length > 0;
 
   const block = document.createElement('div');
-  block.className = 'tool-call-block';
+  block.className = `tool-call-block ${typeClass}${hasBody ? ' has-body' : ''}`;
   block.dataset.id = id;
   block.innerHTML = `
-    <div class="tool-call-header" onclick="this.parentElement.querySelector('.collapsible-body').classList.toggle('open')">
-      <span class="tool-call-icon">${icon}</span>
+    <div class="tool-call-header" onclick="this.parentElement.querySelector('.collapsible-body')?.classList.toggle('open')">
+      <span class="tool-call-icon ${iconClass}">${svgIcon}</span>
+      <span class="tool-call-badge ${badgeClass}">${badgeText}</span>
       <span class="tool-call-name">${escapeHtml(name)}</span>
       <span class="tool-call-status"><span class="spinner" style="display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;"></span></span>
     </div>
-    <div class="collapsible-body">
-      <div class="tool-call-body"><pre>${escapeHtml(JSON.stringify(args, null, 2))}</pre></div>
-    </div>
+    ${hasBody ? `<div class="collapsible-body open">
+      <div class="tool-call-args"><pre>${argsHtml}</pre></div>
+    </div>` : ''}
   `;
-  currentAssistantGroup.appendChild(block);
+  bubble.appendChild(block);
   scrollToBottom();
 }
 
@@ -1392,40 +1627,51 @@ function endToolCall(id, result, elapsed) {
   if (!block) return;
   const status = block.querySelector('.tool-call-status');
   const elapsedStr = elapsed ? ` <span class="tool-call-time">${elapsed}s</span>` : '';
-  if (status) status.innerHTML = `✅${elapsedStr}`;
+  if (status) status.innerHTML = `<span style="color:var(--success)">✓</span>${elapsedStr}`;
 
-  const body = block.querySelector('.collapsible-body');
-  // Remove old result block if any
+  // Update activity chip
+  const toolNameEl = block.querySelector('.tool-call-name');
+  if (toolNameEl) updateToolChip(toolNameEl.textContent, 'done');
+
+  let body = block.querySelector('.collapsible-body');
+  if (!body) {
+    body = document.createElement('div');
+    body.className = 'collapsible-body open';
+    block.querySelector('.tool-call-header').after(body);
+    block.classList.add('has-body');
+  }
+  // Remove old result
   const oldResult = block.querySelector('.tool-result-block');
   if (oldResult) oldResult.remove();
-  const oldHeader = block.querySelector('.tool-result-header');
-  if (oldHeader) oldHeader.remove();
+  const oldSummary = block.querySelector('.tool-result-header');
+  if (oldSummary) oldSummary.remove();
 
   const text = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
   const lines = text.split('\n').length;
   const isLong = lines > 5 || text.length > 500;
 
-  // Summary line for collapsed state
-  const summary = document.createElement('div');
-  summary.className = 'tool-result-header';
-  summary.innerHTML = `<span class="chevron">▶</span> Result (${lines} lines)`;
-  body.appendChild(summary);
-
-  // Content (hidden by default if long)
+  // Result content
   const content = document.createElement('div');
   content.className = 'tool-result-block success';
-  content.style.display = isLong ? 'none' : 'block';
   const pre = document.createElement('pre');
   pre.textContent = text;
   content.appendChild(pre);
+
+  if (isLong) {
+    // Summary toggle
+    const summary = document.createElement('div');
+    summary.className = 'tool-result-header';
+    summary.innerHTML = `<span class="chevron">▶</span> Result (${lines} lines, ${text.length} chars)`;
+    body.appendChild(summary);
+    content.style.display = 'none';
+    summary.addEventListener('click', () => {
+      const isOpen = content.style.display !== 'none';
+      content.style.display = isOpen ? 'none' : 'block';
+      summary.querySelector('.chevron').textContent = isOpen ? '▶' : '▼';
+    });
+  }
+
   body.appendChild(content);
-
-  summary.addEventListener('click', () => {
-    const isOpen = content.style.display !== 'none';
-    content.style.display = isOpen ? 'none' : 'block';
-    summary.querySelector('.chevron').textContent = isOpen ? '▶' : '▼';
-  });
-
   body.classList.add('open');
   scrollToBottom();
 }
@@ -1435,14 +1681,24 @@ function errorToolCall(id, error, elapsed) {
   if (!block) return;
   const status = block.querySelector('.tool-call-status');
   const elapsedStr = elapsed ? ` <span class="tool-call-time">${elapsed}s</span>` : '';
-  if (status) status.innerHTML = `❌${elapsedStr}`;
+  if (status) status.innerHTML = `<span style="color:var(--error)">✗</span>${elapsedStr}`;
 
-  const body = block.querySelector('.collapsible-body');
+  // Update activity chip
+  const toolNameEl = block.querySelector('.tool-call-name');
+  if (toolNameEl) updateToolChip(toolNameEl.textContent, 'error');
+
+  let body = block.querySelector('.collapsible-body');
+  if (!body) {
+    body = document.createElement('div');
+    body.className = 'collapsible-body open';
+    block.querySelector('.tool-call-header').after(body);
+    block.classList.add('has-body');
+  }
   // Remove old result
   const oldResult = block.querySelector('.tool-result-block');
   if (oldResult) oldResult.remove();
-  const oldHeader = block.querySelector('.tool-result-header');
-  if (oldHeader) oldHeader.remove();
+  const oldSummary = block.querySelector('.tool-result-header');
+  if (oldSummary) oldSummary.remove();
 
   const resultDiv = document.createElement('div');
   resultDiv.className = 'tool-result-block error';
@@ -1459,11 +1715,19 @@ function findToolBlock(id) {
 function endTurn() {
   document.getElementById('processingBar').classList.remove('active');
   document.getElementById('chatStatusBar').classList.remove('show');
+  clearToolChips();
+  if (streamRAF) {
+    cancelAnimationFrame(streamRAF);
+    streamRAF = null;
+  }
+  streamBuffer = '';
   currentAssistantGroup = null;
   currentThinkingEl = null;
   currentTextEl = null;
   currentToolEl = null;
   state.processing = false;
+  state.userScrolledUp = false;
+  document.getElementById('scrollBottomBtn').style.display = 'none';
   updateInputState();
 }
 
@@ -1730,8 +1994,7 @@ state.chatInput.addEventListener('input', () => {
 // Abort
 // ===================================================================
 state.abortBtn.addEventListener('click', () => {
-  // We can't truly abort the server-side processing, but we
-  // prevent further UI updates and reset state
+  sendWS({type: 'abort'});
   endTurn();
 });
 
@@ -1804,8 +2067,9 @@ function hideEmptyState() {
   if (es && es.parentNode) es.style.display = 'none';
 }
 
-function scrollToBottom() {
+function scrollToBottom(force) {
   requestAnimationFrame(() => {
+    if (!force && state.userScrolledUp) return;
     state.messagesContainer.scrollTop = state.messagesContainer.scrollHeight;
   });
 }
@@ -1828,6 +2092,19 @@ function hideBanner() {
 loadFileTree();
 connectWS();
 updateInputState();
+
+// Scroll detection: pause auto-scroll when user scrolls up
+const mc = state.messagesContainer;
+mc.addEventListener('scroll', () => {
+  const distFromBottom = mc.scrollHeight - mc.scrollTop - mc.clientHeight;
+  if (distFromBottom > 100) {
+    state.userScrolledUp = true;
+    document.getElementById('scrollBottomBtn').style.display = 'flex';
+  } else {
+    state.userScrolledUp = false;
+    document.getElementById('scrollBottomBtn').style.display = 'none';
+  }
+});
 
 // Ping every 30s to keep connection alive
 setInterval(() => {

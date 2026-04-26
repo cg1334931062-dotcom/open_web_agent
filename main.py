@@ -1,5 +1,6 @@
 import asyncio
 import json
+import traceback
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -26,6 +27,7 @@ class SessionState:
     agent: Agent
     pending_ask_id: str | None = None
     canceled: bool = False
+    message_checkpoint: int = 0  # index in agent.messages before current turn
 
 
 class AppState:
@@ -245,6 +247,31 @@ async def websocket_endpoint(ws: WebSocket):
         await send({"type": "session_created", "session_id": sid})
         await send({"type": "info", "message": f"Connected. Workspace: {agent.workspace}"})
 
+        agent_task: asyncio.Task | None = None
+
+        async def stop_agent():
+            """Cancel current agent task by setting signal and waiting."""
+            nonlocal agent_task
+            if agent_task and not agent_task.done():
+                session.canceled = True
+                try:
+                    await asyncio.wait_for(agent_task, timeout=2.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    agent_task.cancel()
+                agent_task = None
+
+        async def run_agent_in_background():
+            """Run agent turn and send turn_complete when done."""
+            try:
+                await run_agent_turn(agent, send, session)
+                if not session.canceled:
+                    await send({"type": "turn_complete"})
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                print(f"Agent task error: {e}")
+                traceback.print_exc()
+
         while True:
             raw = await ws.receive_text()
             data = json.loads(raw)
@@ -252,9 +279,9 @@ async def websocket_endpoint(ws: WebSocket):
 
             # --- Settings ---
             if msg_type == "settings_update":
+                await stop_agent()
                 s = data.get("settings", {})
                 old_key = state.settings.api_key
-                # Map frontend camelCase keys to backend snake_case
                 state.settings = AgentSettings(
                     provider=s.get("provider", "anthropic"),
                     api_key=s.get("apiKey") or s.get("api_key") or old_key,
@@ -285,9 +312,18 @@ async def websocket_endpoint(ws: WebSocket):
                         tool_call_id=session.pending_ask_id,
                     )
                     session.pending_ask_id = None
-                    # Resume: call LLM again with the injected response
-                    await run_agent_turn(agent, send, session)
-                    await send({"type": "turn_complete"})
+                    session.canceled = False
+                    agent_task = asyncio.create_task(run_agent_in_background())
+                continue
+
+            # --- Abort ---
+            if msg_type == "abort":
+                await stop_agent()
+                # Roll back conversation: remove the aborted message and any
+                # partial tool results / assistant responses that were added
+                # after the checkpoint.
+                while len(agent.messages) > session.message_checkpoint:
+                    agent.messages.pop()
                 continue
 
             # --- User message ---
@@ -295,15 +331,18 @@ async def websocket_endpoint(ws: WebSocket):
                 text = data.get("text", "").strip()
                 if not text:
                     continue
+                await stop_agent()
                 session.canceled = False
+                session.message_checkpoint = len(agent.messages)
                 agent.messages.append({"role": "user", "content": text})
                 await send({"type": "user_message", "text": text})
-                await run_agent_turn(agent, send, session)
-                await send({"type": "turn_complete"})
+                agent_task = asyncio.create_task(run_agent_in_background())
 
     except WebSocketDisconnect:
         pass
     except Exception as e:
+        tb = traceback.format_exc()
+        print(f"WebSocket error: {e}\n{tb}")
         try:
             await send({"type": "error", "message": f"Server error: {str(e)}"})
         except Exception:
@@ -326,21 +365,30 @@ async def run_agent_turn(agent: Agent, send, session: SessionState):
         agent.flush_tool_results()
         await send({"type": "thinking_start"})
 
+        has_content = False
         async for event in agent.stream_llm_call():
-            if event["type"] == "thinking_delta":
+            etype = event["type"]
+            if etype == "thinking_delta":
                 await send(event)
-            elif event["type"] == "text_delta":
+            elif etype == "text_delta":
+                has_content = True
                 await send(event)
-            elif event["type"] == "tool_call_start":
+            elif etype == "tool_call_start":
+                has_content = True
                 await send(event)
-            elif event["type"] == "text_end":
+            elif etype == "text_end":
                 await send(event)
-            elif event["type"] == "error":
-                await send(event)
+            elif etype == "error":
+                await send({"type": "error", "message": f"LLM error: {event.get('message', 'unknown')}"})
                 return
 
         # Always send thinking_end to clear the UI state
         await send({"type": "thinking_end"})
+
+        # If LLM returned no text and no tool calls, notify user
+        if not has_content and not agent.has_tool_uses:
+            await send({"type": "error", "message": "AI returned empty response. Check API key and network."})
+            return
 
         # Commit response to conversation history
         agent.commit_llm_response()
