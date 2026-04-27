@@ -15,10 +15,19 @@ from .skills import SkillRegistry
 SYSTEM_PROMPT_TEMPLATE = """You are an AI coding agent with full access to a Linux environment.
 
 ABILITIES:
-You can read, write, and edit files, execute bash commands, search files with glob and grep, and list directories. Use these tools to explore the codebase and accomplish the user's goals. Prefer exploring before making changes.
+You can read, write, and edit files, execute bash commands, search files with glob and grep, list directories, search the web, fetch URLs, and manage tasks (task_create, task_update, task_list).
+
+CORE WORKFLOW — For any request that requires more than one step:
+1. FIRST call task_create to break the work into clear, ordered tasks
+2. For each task, BEFORE starting work: call task_update(id, "in_progress")
+3. Execute the task using other tools
+4. AFTER completing: call task_update(id, "completed")
+5. Move to the next task — use task_list to see remaining work
+
+This is MANDATORY for multi-step work. Do NOT skip task management — it shows the user what you're doing and tracks progress. Even for seemingly simple requests that need a few steps, create tasks. The tasks panel is how the user monitors your progress.
 
 RULES:
-1. THINK step by step before using any tool. Use the workspace to understand the codebase.
+1. THINK step by step before using any tool. Plan your approach in thinking.
 2. For BASH commands:
    - The CWD is {workspace_path}
    - Commands run with a 30-second timeout
@@ -28,10 +37,8 @@ RULES:
    - Always read a file before editing it
    - Use edit_file for surgical changes, write_file for new files
    - All paths are relative to the workspace root
-4. When you need information from the user (clarification, missing details, choices), you MUST call the ask_user tool instead of writing the question as text output. The ask_user tool pauses execution and waits for the user's response. Only use text output for final answers and summaries, never for asking questions back to the user.
-5. When you complete a task, summarize what you did
-6. ALWAYS respond in Chinese (中文). The user's primary language is Chinese. All explanations, summaries, and responses must be in Chinese, regardless of the language of the code or files being discussed.
-7. Your thinking and reasoning process must also be in Chinese (中文). Think step by step in Chinese.
+4. When you need information from the user, you MUST call ask_user — never write questions as text output.
+5. ALWAYS respond in Chinese (中文). Think and respond in Chinese.
 
 WORKSPACE:
 {workspace_path}"""
@@ -66,6 +73,8 @@ class Agent:
         )
         self._pending_tool_results: list[dict] = []
         self._pending_thinking: list[dict] = []
+        self.tasks: list[dict] = []
+        self._task_counter: int = 0
 
     def initialize(self):
         self.skills.discover()
@@ -167,6 +176,60 @@ class Agent:
                 "tool_call_id": tool_call_id,
                 "question": args.get("question", ""),
             }
+            return
+
+        # Task tools — managed in agent state
+        if name == "task_create":
+            tasks_in = args.get("tasks", [])
+            created = []
+            for t in tasks_in:
+                self._task_counter += 1
+                task = {
+                    "id": str(self._task_counter),
+                    "title": t.get("title", ""),
+                    "description": t.get("description", ""),
+                    "status": "pending",
+                }
+                self.tasks.append(task)
+                created.append(task)
+            elapsed = round(time.time() - start, 1)
+            lines = [f"{t['id']}. [{t['status']}] {t['title']}" for t in created]
+            result = "Created " + str(len(created)) + " task(s):\n" + "\n".join(lines)
+            yield {"type": "task_update", "tasks": self.tasks}
+            yield {"type": "tool_call_end", "tool_call_id": tool_call_id, "result": result, "elapsed": elapsed}
+            self._inject_tool_result(tool_call_id, result)
+            return
+
+        if name == "task_update":
+            tid = args.get("id", "")
+            status = args.get("status", "")
+            task = next((t for t in self.tasks if t["id"] == tid), None)
+            elapsed = round(time.time() - start, 1)
+            if not task:
+                msg = f"Task {tid} not found"
+                yield {"type": "tool_call_error", "tool_call_id": tool_call_id, "error": msg, "elapsed": elapsed}
+                self._inject_tool_result(tool_call_id, f"Error: {msg}", is_error=True)
+            elif status not in ("pending", "in_progress", "completed"):
+                msg = f"Invalid status: {status}"
+                yield {"type": "tool_call_error", "tool_call_id": tool_call_id, "error": msg, "elapsed": elapsed}
+                self._inject_tool_result(tool_call_id, f"Error: {msg}", is_error=True)
+            else:
+                task["status"] = status
+                result = f"Task {tid} → {status}"
+                yield {"type": "task_update", "tasks": self.tasks}
+                yield {"type": "tool_call_end", "tool_call_id": tool_call_id, "result": result, "elapsed": elapsed}
+                self._inject_tool_result(tool_call_id, result)
+            return
+
+        if name == "task_list":
+            elapsed = round(time.time() - start, 1)
+            if not self.tasks:
+                result = "No tasks yet."
+            else:
+                lines = [f"{t['id']}. [{t['status']}] {t['title']}" for t in self.tasks]
+                result = "\n".join(lines)
+            yield {"type": "tool_call_end", "tool_call_id": tool_call_id, "result": result, "elapsed": elapsed}
+            self._inject_tool_result(tool_call_id, result)
             return
 
         # Built-in tools

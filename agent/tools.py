@@ -175,6 +175,49 @@ TOOL_DEFINITIONS = [
             "required": ["url"],
         },
     },
+    {
+        "name": "task_create",
+        "description": "Create tasks to break down and track progress on complex work. Create one or more tasks at once. Each task gets a unique ID and starts as 'pending'. Use this to plan multi-step work before executing.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tasks": {
+                    "type": "array",
+                    "description": "List of tasks to create",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string", "description": "Short task title"},
+                            "description": {"type": "string", "description": "Optional details about what needs to be done"},
+                        },
+                        "required": ["title"],
+                    },
+                },
+            },
+            "required": ["tasks"],
+        },
+    },
+    {
+        "name": "task_update",
+        "description": "Update a task's status. Use this to mark tasks as in_progress when starting work, or completed when done.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "The task ID to update"},
+                "status": {"type": "string", "enum": ["pending", "in_progress", "completed"], "description": "New status"},
+            },
+            "required": ["id", "status"],
+        },
+    },
+    {
+        "name": "task_list",
+        "description": "List all current tasks with their statuses. Use this to review progress and decide what to work on next.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
 ]
 
 TOOL_NAME_MAP = {t["name"]: t for t in TOOL_DEFINITIONS}

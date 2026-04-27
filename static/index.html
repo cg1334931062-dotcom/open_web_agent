@@ -1783,6 +1783,33 @@ body {
   border-color: var(--accent);
   background: var(--bg-hover);
 }
+
+/* Task list */
+.task-item {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-light);
+  display: flex; gap: 8px; align-items: flex-start;
+  cursor: pointer; transition: background 0.1s;
+}
+.task-item:hover { background: var(--bg-hover); }
+.task-item.completed .task-title { text-decoration: line-through; opacity: 0.6; }
+.task-item.completed .task-desc { opacity: 0.4; }
+.task-item.next { border-left: 3px solid var(--accent); }
+.task-item.clickable { cursor: pointer; }
+.task-item.clickable:hover { background: var(--accent-subtle); }
+.task-item.running { border-left: 3px solid var(--warning); background: rgba(245,158,11,0.05); }
+.task-running-label { font-size: 10px; color: var(--warning); margin-left: 6px; animation: pulse 1.5s infinite; }
+.task-status {
+  width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0; margin-top: 1px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px;
+}
+.task-status.pending { border: 2px solid var(--text-muted); color: var(--text-muted); }
+.task-status.in_progress { border: 2px solid var(--warning); color: var(--warning); animation: pulse 1.5s infinite; }
+.task-status.completed { background: var(--success); border: 2px solid var(--success); color: #fff; }
+.task-body { flex: 1; min-width: 0; }
+.task-title { font-size: 13px; color: var(--text-primary); }
+.task-desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -1797,6 +1824,9 @@ body {
   </button>
   <button class="activity-btn" data-panel="settings" title="Settings">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1a11 11 0 0 0-2.5.3l-.5 2.2a1 1 0 0 1-.8.8l-2.2.5a1 1 0 0 1-1.1-.4L2.5 3.2a11 11 0 0 0-1.3 2.3l1.7 1.4a1 1 0 0 1 .3 1.1L2.4 10a1 1 0 0 1-.9.6l-2.2-.4A11 11 0 0 0 0 12a11 11 0 0 0 .3 2.5l2.2.5a1 1 0 0 1 .8.8l.5 2.2a1 1 0 0 1-.4 1.1L1.7 20.5a11 11 0 0 0 2.3 1.3l1.4-1.7a1 1 0 0 1 1.1-.3l2.2.7a1 1 0 0 1 .6.9l.4 2.2A11 11 0 0 0 12 24a11 11 0 0 0 2.5-.3l.5-2.2a1 1 0 0 1 .8-.8l2.2-.5a1 1 0 0 1 1.1.4l1.4 1.7a11 11 0 0 0 2.3-1.3l-1.7-1.4a1 1 0 0 1-.3-1.1l.7-2.2a1 1 0 0 1 .9-.6l2.2.4A11 11 0 0 0 24 12a11 11 0 0 0-.3-2.5l-2.2-.5a1 1 0 0 1-.8-.8l-.5-2.2a1 1 0 0 1 .4-1.1l1.7-1.4a11 11 0 0 0-2.3-1.3l-1.4 1.7a1 1 0 0 1-1.1.3l-2.2-.7a1 1 0 0 1-.6-.9l-.4-2.2A11 11 0 0 0 12 1z"/></svg>
+  </button>
+  <button class="activity-btn" data-panel="tasks" title="Tasks">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
   </button>
   <button class="activity-btn" data-panel="history" title="History">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -1848,6 +1878,17 @@ body {
       <label class="settings-label">Default Model</label>
       <select class="settings-select" id="setModel"></select>
       <button class="btn btn-primary" id="saveSettings" style="width:100%;justify-content:center;margin-top:8px;">Apply Settings</button>
+    </div>
+  </div>
+  <div id="panelTasks" class="panel-section" style="display:none;flex-direction:column;height:100%;">
+    <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;">
+      <span>Tasks</span>
+      <button id="runAllBtn" class="btn btn-ghost btn-icon" title="Run all tasks" style="width:28px;height:28px;padding:0;display:none;" onclick="runAllTasks()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      </button>
+    </div>
+    <div class="panel-content" id="tasksContainer" style="flex:1;overflow-y:auto;">
+      <div style="padding:16px;font-size:13px;color:var(--text-muted);text-align:center;">No tasks yet</div>
     </div>
   </div>
   <div id="panelHistory" class="panel-section" style="display:none;flex-direction:column;height:100%;">
@@ -1970,6 +2011,7 @@ const state = {
     modelList: localStorage.getItem('wa_model_list') || '',
   },
   skills: [],
+  tasks: [],
 };
 
 // ===================================================================
@@ -1986,11 +2028,12 @@ document.querySelectorAll('.activity-btn').forEach(btn => {
 });
 
 function showPanel(name) {
-  ['files','skills','settings','history'].forEach(p => {
+  ['files','skills','settings','history','tasks'].forEach(p => {
     const el = document.getElementById('panel' + p.charAt(0).toUpperCase() + p.slice(1));
     el.style.display = p === name ? 'flex' : 'none';
   });
   if (name === 'history') loadSessionList();
+  if (name === 'tasks') renderTasks();
 }
 
 // ===================================================================
@@ -2135,6 +2178,64 @@ function toggleSkill(name, el) {
   const enabled = !el.classList.contains('active');
   el.classList.toggle('active', enabled);
   sendWS({type: 'toggle_skill', name, enabled});
+}
+
+function renderTasks() {
+  const container = document.getElementById('tasksContainer');
+  const tasks = state.tasks || [];
+  if (tasks.length === 0) {
+    container.innerHTML = '<div style="padding:16px;font-size:13px;color:var(--text-muted);text-align:center;">No tasks yet</div>';
+    return;
+  }
+  const nextIdx = tasks.findIndex(t => t.status !== 'completed');
+  const hasPending = tasks.some(t => t.status === 'pending');
+  const canRun = hasPending && state.connected && !state.processing;
+  document.getElementById('runAllBtn').style.display = hasPending ? '' : 'none';
+  document.getElementById('runAllBtn').disabled = !canRun;
+  const icons = {pending: '', in_progress: '◉', completed: '✓'};
+  const labels = {pending: '', in_progress: '<span class="task-running-label">执行中...</span>', completed: ''};
+  container.innerHTML = tasks.map((t, i) => {
+    const desc = t.description ? `<div class="task-desc">${escapeHtml(t.description)}</div>` : '';
+    const isNext = i === nextIdx && t.status === 'pending';
+    const isRunning = t.status === 'in_progress';
+    // Click: pending-next triggers execution, in_progress resets to pending, completed does nothing
+    const clickable = (isNext || isRunning) && state.connected && !state.processing;
+    const cls = [t.status === 'completed' ? 'completed' : '', isNext ? 'next' : '', isRunning ? 'running' : '', clickable ? 'clickable' : ''].filter(Boolean).join(' ');
+    const tip = isNext ? 'Click to execute' : isRunning ? 'Click to reset (agent stuck?)' : t.status === 'completed' ? 'Completed' : 'Complete previous first';
+    return `<div class="task-item ${cls}" data-task-id="${t.id}" data-task-title="${escapeHtml(t.title)}" data-task-status="${t.status}" title="${tip}">
+      <div class="task-status ${t.status}">${icons[t.status] || ''}</div>
+      <div class="task-body">
+        <div class="task-title">${escapeHtml(t.title)}${labels[t.status] || ''}</div>
+        ${desc}
+      </div>
+    </div>`;
+  }).join('');
+
+  // Click handlers
+  container.querySelectorAll('.task-item.clickable').forEach(el => {
+    el.addEventListener('click', () => {
+      if (!state.connected || state.processing) return;
+      const id = el.dataset.taskId;
+      const title = el.dataset.taskTitle;
+      const st = el.dataset.taskStatus;
+      if (st === 'pending') {
+        state.chatInput.value = '请执行任务 #' + id + ': ' + title;
+        sendMessage();
+      } else if (st === 'in_progress') {
+        // Reset stuck task to pending
+        sendWS({type: 'task_toggle', id: id});
+      }
+    });
+  });
+}
+
+function runAllTasks() {
+  if (!state.connected || state.processing) return;
+  const pending = (state.tasks || []).filter(t => t.status === 'pending');
+  if (pending.length === 0) return;
+  const names = pending.map(t => '#' + t.id + ' ' + t.title).join('\n');
+  state.chatInput.value = '请按顺序执行以下所有任务，每完成一个任务后更新其状态：\n' + names;
+  sendMessage();
 }
 
 // ===================================================================
@@ -2463,6 +2564,7 @@ function handleWSMessage(msg) {
         renderSuggestions(msg.suggestions);
       }
       loadFileTree();
+      renderTasks();
       if (document.getElementById('panelHistory').style.display !== 'none') {
         loadSessionList();
       }
@@ -2485,6 +2587,11 @@ function handleWSMessage(msg) {
       if (document.getElementById('panelHistory').style.display !== 'none') {
         loadSessionList();
       }
+      break;
+
+    case 'task_update':
+      state.tasks = msg.tasks || [];
+      renderTasks();
       break;
 
     case 'skills_updated':
@@ -2646,7 +2753,7 @@ function endText() {
   currentTextEl = null;
 }
 
-const BUILTIN_TOOLS = new Set(['read_file','write_file','edit_file','bash','glob','grep','directory_list','ask_user','web_search','web_fetch']);
+const BUILTIN_TOOLS = new Set(['read_file','write_file','edit_file','bash','glob','grep','directory_list','ask_user','web_search','web_fetch','task_create','task_update','task_list']);
 
 // SVG icons for built-in tools
 const TOOL_ICONS = {
@@ -2659,6 +2766,9 @@ const TOOL_ICONS = {
   directory_list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
   ask_user:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
   web_fetch:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><path d="M2 12h20"/></svg>',
+  task_create: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+  task_update: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
+  task_list:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',
 };
 const SKILL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>';
 
@@ -3103,6 +3213,11 @@ function updateInputState() {
   state.chatInput.placeholder = !state.connected ? 'Connecting...'
     : state.processing ? 'Agent is working...'
     : 'Type a message...';
+  document.getElementById('saveSettings').disabled = state.processing;
+  document.getElementById('setProvider').disabled = state.processing;
+  document.getElementById('modelSelect').disabled = state.processing;
+  const nc2 = document.getElementById('newChatBtn2');
+  if (nc2) nc2.style.opacity = state.processing ? '0.4' : '';
 }
 
 function sendMessage() {
@@ -3459,7 +3574,8 @@ function appendHistoryBlocks(bubble, contentBlocks, toolResults) {
   });
 }
 
-function startNewChat() {
+async function startNewChat() {
+  if (state.processing) return;
   if (state.ws) {
     state.ws.onclose = null;
     state.ws.onmessage = null;
@@ -3478,6 +3594,13 @@ function startNewChat() {
   currentAssistantGroup = null;
   currentThinkingEl = null;
   currentTextEl = null;
+  // Reuse existing blank session if available
+  try {
+    const resp = await fetch('/api/sessions');
+    const data = await resp.json();
+    const blank = (data.sessions || []).find(s => (s.message_count || 0) === 0);
+    if (blank) state._resumeSessionId = blank.id;
+  } catch(e) {}
   connectWS();
 }
 

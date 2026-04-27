@@ -31,6 +31,7 @@ class SessionState:
     canceled: bool = False
     message_checkpoint: int = 0  # index in agent.messages before current turn
     had_ask_user: bool = False   # skip suggestions if turn involved ask_user
+    _llm_error: bool = False     # skip suggestions after LLM error
 
 
 class AppState:
@@ -307,6 +308,7 @@ async def websocket_endpoint(ws: WebSocket):
             agent = session.agent
             resume_messages = await state.store.load_messages(resume_sid)
             agent.messages = resume_messages
+            agent.tasks = await state.store.load_tasks(resume_sid)
             # Re-init agent with stored provider/model
             agent.settings.provider = record.get("provider", "anthropic")
             agent.settings.model = record.get("model", "")
@@ -333,9 +335,14 @@ async def websocket_endpoint(ws: WebSocket):
         await send({"type": "session_created", "session_id": sid})
         await send({"type": "info", "message": f"Connected. Workspace: {agent.workspace}"})
 
-        # Send history if resuming a session
+        # Send history and tasks if resuming a session
         if resume_messages:
             await send({"type": "history", "messages": resume_messages})
+        # Always restore tasks when resuming
+        if agent.tasks:
+            max_id = max((int(t["id"]) for t in agent.tasks if t["id"].isdigit()), default=0)
+            agent._task_counter = max_id
+        await send({"type": "task_update", "tasks": agent.tasks})
 
         agent_task: asyncio.Task | None = None
 
@@ -357,7 +364,7 @@ async def websocket_endpoint(ws: WebSocket):
                 # Skip turn_complete if paused for ask_user (will be resumed)
                 if session.pending_ask_id:
                     return
-                if not session.canceled:
+                if not session.canceled and not session._llm_error:
                     suggestions = []
                     if not session.had_ask_user:
                         try:
@@ -375,14 +382,15 @@ async def websocket_endpoint(ws: WebSocket):
                 traceback.print_exc()
 
         async def _persist_session():
-            """Fire-and-forget: save messages and update session timestamp."""
+            """Fire-and-forget: save messages, tasks, and update session timestamp."""
             try:
                 await state.store.save_messages(sid, agent.messages)
+                await state.store.save_tasks(sid, agent.tasks)
                 await state.store.update_session(sid)
             except Exception as e:
                 print(f"DB persist error: {e}")
 
-        # Fire-and-forget: create session record in DB
+        # Fire-and-forget: create session record in DB and clean up old blanks
         s_cfg = agent.settings
         asyncio.create_task(
             state.store.create_session(
@@ -393,6 +401,7 @@ async def websocket_endpoint(ws: WebSocket):
                 base_url=s_cfg.base_url or "",
             )
         )
+        asyncio.create_task(state.store.cleanup_blank_sessions(sid))
 
         while True:
             raw = await ws.receive_text()
@@ -426,6 +435,15 @@ async def websocket_endpoint(ws: WebSocket):
             if msg_type == "toggle_skill":
                 ok = agent.skills.toggle_skill(data["name"], data.get("enabled", True))
                 await send({"type": "skills_updated", "skills": agent.skills.get_skills_info()})
+                continue
+
+            if msg_type == "task_toggle":
+                tid = data.get("id", "")
+                task = next((t for t in agent.tasks if t["id"] == tid), None)
+                if task:
+                    task["status"] = "completed" if task["status"] != "completed" else "pending"
+                    await send({"type": "task_update", "tasks": agent.tasks})
+                    asyncio.create_task(state.store.save_tasks(sid, agent.tasks))
                 continue
 
             # --- Ask user response ---
@@ -481,6 +499,7 @@ async def websocket_endpoint(ws: WebSocket):
         # Persist final state on disconnect, then clean up in-memory
         try:
             asyncio.create_task(state.store.save_messages(sid, agent.messages))
+            asyncio.create_task(state.store.save_tasks(sid, agent.tasks))
         except Exception:
             pass
         state.sessions.pop(sid, None)
@@ -492,6 +511,7 @@ async def websocket_endpoint(ws: WebSocket):
 
 async def run_agent_turn(agent: Agent, send, session: SessionState):
     """Run one agent turn: LLM call → tool execution → repeat until done."""
+    session._llm_error = False
     for _ in range(25):  # max 25 turns per user message
         if session.canceled:
             return
@@ -502,6 +522,9 @@ async def run_agent_turn(agent: Agent, send, session: SessionState):
 
         has_content = False
         async for event in agent.stream_llm_call():
+            if session.canceled:
+                await send({"type": "thinking_end"})
+                return
             etype = event["type"]
             if etype == "thinking_delta":
                 await send(event)
@@ -514,8 +537,18 @@ async def run_agent_turn(agent: Agent, send, session: SessionState):
             elif etype == "text_end":
                 await send(event)
             elif etype == "error":
-                await send({"type": "error", "message": f"LLM error: {event.get('message', 'unknown')}"})
+                err_msg = event.get('message', '').strip() or 'LLM call failed'
+                session._llm_error = True
+                await send({"type": "error", "message": f"LLM error: {err_msg}"})
+                # Reset any in_progress task back to pending
+                for t in agent.tasks:
+                    if t["status"] == "in_progress":
+                        t["status"] = "pending"
+                await send({"type": "task_update", "tasks": agent.tasks})
                 return
+
+        if session.canceled:
+            return
 
         # Always send thinking_end to clear the UI state
         await send({"type": "thinking_end"})
@@ -534,6 +567,8 @@ async def run_agent_turn(agent: Agent, send, session: SessionState):
 
         # --- Step 2: Execute each tool ---
         for tu in agent.pending_tool_uses:
+            if session.canceled:
+                return
             tid, name, args = tu["id"], tu["name"], tu["input"]
 
             async for event in agent.execute_tool(tid, name, args):

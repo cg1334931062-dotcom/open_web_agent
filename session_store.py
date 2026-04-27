@@ -35,6 +35,19 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_session
     ON messages(session_id, sequence);
+
+CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    task_id TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    sequence INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_session
+    ON tasks(session_id);
 """
 
 
@@ -225,5 +238,65 @@ class SessionStore:
                     pass
                 messages.append({"role": row["role"], "content": content})
             return messages
+
+        return await asyncio.to_thread(_load)
+
+    async def cleanup_blank_sessions(self, keep_sid: str) -> None:
+        """Delete blank sessions (0 messages) except the one being kept."""
+        self._ensure_ready()
+
+        def _cleanup():
+            conn = sqlite3.connect(self.db_path)
+            conn.execute("PRAGMA foreign_keys=ON")
+            conn.execute(
+                """DELETE FROM sessions WHERE id != ? AND id IN
+                   (SELECT s.id FROM sessions s LEFT JOIN messages m ON m.session_id = s.id
+                    GROUP BY s.id HAVING COUNT(m.id) = 0)""",
+                (keep_sid,),
+            )
+            conn.commit()
+            conn.close()
+
+        await asyncio.to_thread(_cleanup)
+
+    # ------------------------------------------------------------------
+    # Task persistence
+    # ------------------------------------------------------------------
+
+    async def save_tasks(self, sid: str, tasks: list) -> None:
+        self._ensure_ready()
+
+        def _save():
+            conn = sqlite3.connect(self.db_path)
+            conn.execute("PRAGMA foreign_keys=ON")
+            conn.execute("BEGIN")
+            try:
+                conn.execute("DELETE FROM tasks WHERE session_id=?", (sid,))
+                for i, t in enumerate(tasks):
+                    conn.execute(
+                        "INSERT INTO tasks (session_id, task_id, title, description, status, sequence) VALUES (?, ?, ?, ?, ?, ?)",
+                        (sid, t["id"], t.get("title", ""), t.get("description", ""), t.get("status", "pending"), i),
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                conn.close()
+
+        await asyncio.to_thread(_save)
+
+    async def load_tasks(self, sid: str) -> list[dict]:
+        self._ensure_ready()
+
+        def _load():
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT task_id, title, description, status FROM tasks WHERE session_id=? ORDER BY sequence",
+                (sid,),
+            ).fetchall()
+            conn.close()
+            return [{"id": r["task_id"], "title": r["title"], "description": r["description"], "status": r["status"]} for r in rows]
 
         return await asyncio.to_thread(_load)
