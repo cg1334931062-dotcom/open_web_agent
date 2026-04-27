@@ -28,7 +28,7 @@ RULES:
    - Always read a file before editing it
    - Use edit_file for surgical changes, write_file for new files
    - All paths are relative to the workspace root
-4. When you are unsure, use ask_user to clarify rather than guessing
+4. When you need information from the user (clarification, missing details, choices), you MUST call the ask_user tool instead of writing the question as text output. The ask_user tool pauses execution and waits for the user's response. Only use text output for final answers and summaries, never for asking questions back to the user.
 5. When you complete a task, summarize what you did
 6. ALWAYS respond in Chinese (中文). The user's primary language is Chinese. All explanations, summaries, and responses must be in Chinese, regardless of the language of the code or files being discussed.
 7. Your thinking and reasoning process must also be in Chinese (中文). Think step by step in Chinese.
@@ -186,11 +186,12 @@ class Agent:
             if result.success:
                 yield {"type": "tool_call_end", "tool_call_id": tool_call_id, "result": result.output, "elapsed": elapsed}
             else:
-                yield {"type": "tool_call_error", "tool_call_id": tool_call_id, "error": result.error or "unknown", "elapsed": elapsed}
+                err_msg = result.error or result.output or "unknown"
+                yield {"type": "tool_call_error", "tool_call_id": tool_call_id, "error": err_msg, "elapsed": elapsed}
 
             self._inject_tool_result(
                 tool_call_id,
-                result.output if result.success else f"Error: {result.error}",
+                result.output if result.success else f"Error: {result.error or result.output}",
                 is_error=not result.success,
             )
             return

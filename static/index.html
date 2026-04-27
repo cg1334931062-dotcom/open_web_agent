@@ -445,7 +445,7 @@ body {
   border-radius: 8px 8px 0 0;
   border-bottom: none;
 }
-.tool-call-header:hover { background: var(--bg-hover); }
+.tool-call-header { cursor: default; }
 .tool-call-icon { width: 18px; height: 18px; flex-shrink: 0; }
 .tool-call-icon.tool-icon { color: var(--accent); }
 .tool-call-icon.skill-icon { color: var(--success); }
@@ -615,9 +615,10 @@ body {
 .file-preview-overlay {
   position: fixed; inset: 0; z-index: 50;
   background: rgba(0,0,0,0.6);
-  display: flex; align-items: center; justify-content: center;
-  padding: 40px;
+  display: none; align-items: center; justify-content: center;
+  padding: 20px;
 }
+.file-preview-overlay.open { display: flex; }
 .file-preview-modal {
   background: var(--bg-primary);
   border: 1px solid var(--border);
@@ -625,15 +626,21 @@ body {
   width: 100%; max-width: 900px; max-height: 80vh;
   display: flex; flex-direction: column;
   box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  overflow: hidden;
 }
 .file-preview-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 16px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--border);
 }
 .file-preview-name { font-size: 14px; font-weight: 600; }
+.file-preview-header .btn-ghost {
+  width: 28px; height: 28px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 6px;
+}
 .file-preview-content {
-  flex: 1; overflow: auto; padding: 16px;
+  flex: 1; overflow: auto; padding: 20px;
   font-family: var(--font-mono); font-size: 13px; line-height: 1.5;
 }
 .file-preview-content pre { margin: 0; white-space: pre-wrap; }
@@ -663,6 +670,30 @@ body {
   margin-bottom: 12px; min-height: 60px;
 }
 .ask-user-input:focus { border-color: var(--accent); }
+
+/* Confirm Dialog — same style as ask_user */
+.confirm-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0,0,0,0.6);
+  display: none; align-items: center; justify-content: center;
+  padding: 20px;
+}
+.confirm-overlay.open { display: flex; }
+.confirm-modal {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 100%; max-width: 400px;
+  padding: 24px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.confirm-message {
+  font-size: 15px; line-height: 1.5; margin-bottom: 20px;
+  color: var(--text-primary);
+}
+.confirm-actions {
+  display: flex; gap: 10px; justify-content: flex-end;
+}
 
 /* Empty state */
 .empty-state {
@@ -1211,9 +1242,7 @@ body {
 .tool-call-block.has-body .tool-call-header {
   border-radius: 6px 6px 0 0;
 }
-.tool-call-header:hover {
-  filter: brightness(1.1);
-}
+.tool-call-header { cursor: default; }
 .tool-call-header .tool-call-name {
   color: var(--win-active-title-text);
 }
@@ -1390,7 +1419,9 @@ body {
    ================================================================= */
 .file-preview-overlay {
   background: rgba(0,0,0,0.6);
+  display: none;
 }
+.file-preview-overlay.open { display: flex; }
 .file-preview-modal {
   background: var(--win-button-face);
   border: 2px solid;
@@ -1466,6 +1497,21 @@ body {
   border-radius: 6px;
   min-height: 50px;
 }
+
+/* Confirm Modal */
+.confirm-overlay { display: none; }
+.confirm-overlay.open { display: flex; }
+.confirm-modal {
+  background: var(--win-button-face);
+  border: 2px solid;
+  border-color: var(--win-button-highlight) var(--win-button-dark-shadow)
+                var(--win-button-dark-shadow) var(--win-button-highlight);
+  box-shadow: inset 1px 1px 0 var(--win-button-highlight),
+              inset -1px -1px 0 var(--win-button-shadow);
+  border-radius: 8px;
+  padding: 16px;
+}
+.confirm-message { font-size: 12px; }
 
 /* =================================================================
    SCROLLBARS — 16px wide with raised thumbs
@@ -1858,7 +1904,7 @@ body {
 </div>
 
 <!-- File Preview Overlay -->
-<div class="file-preview-overlay" id="filePreviewOverlay" style="display:none" onclick="if(event.target===this)closeFilePreview()">
+<div class="file-preview-overlay" id="filePreviewOverlay" onclick="if(event.target===this)closeFilePreview()">
   <div class="file-preview-modal">
     <div class="file-preview-header">
       <span class="file-preview-name" id="filePreviewName">File</span>
@@ -1877,6 +1923,17 @@ body {
     <textarea class="ask-user-input" id="askUserInput" placeholder="Your response..." rows="3"></textarea>
     <div style="display:flex;gap:8px;justify-content:flex-end;">
       <button class="btn btn-primary" id="askUserSubmit">Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Modal -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-modal">
+    <div class="confirm-message" id="confirmMessage"></div>
+    <div class="confirm-actions">
+      <button class="btn btn-ghost" id="confirmCancel">Cancel</button>
+      <button class="btn btn-danger" id="confirmOk">Delete</button>
     </div>
   </div>
 </div>
@@ -2034,14 +2091,14 @@ async function openFile(path) {
     const langMap = {py:'python',js:'javascript',ts:'typescript',html:'html',css:'css',json:'json',md:'markdown',yaml:'yaml',yml:'yaml',sh:'bash',bash:'bash',sql:'sql',go:'go',rs:'rust',java:'java',c:'c',cpp:'cpp',rb:'ruby',php:'php'};
     const lang = langMap[ext] || 'plaintext';
     contentEl.innerHTML = '<pre><code class="language-' + lang + '">' + highlightCode(data.content, lang) + '</code></pre>';
-    document.getElementById('filePreviewOverlay').style.display = 'flex';
+    document.getElementById('filePreviewOverlay').classList.add('open');
   } catch(e) {
     // Silently fail
   }
 }
 
 function closeFilePreview() {
-  document.getElementById('filePreviewOverlay').style.display = 'none';
+  document.getElementById('filePreviewOverlay').classList.remove('open');
 }
 
 // Escape HTML
@@ -2406,6 +2463,9 @@ function handleWSMessage(msg) {
         renderSuggestions(msg.suggestions);
       }
       loadFileTree();
+      if (document.getElementById('panelHistory').style.display !== 'none') {
+        loadSessionList();
+      }
       break;
 
     case 'error':
@@ -3254,16 +3314,32 @@ function resumeSession(sid) {
   connectWS();
 }
 
+function showConfirm(message, onOk) {
+  document.getElementById('confirmMessage').textContent = message;
+  document.getElementById('confirmOverlay').classList.add('open');
+  const ok = document.getElementById('confirmOk');
+  const cancel = document.getElementById('confirmCancel');
+  const cleanup = () => {
+    document.getElementById('confirmOverlay').classList.remove('open');
+    ok.removeEventListener('click', onOkHandler);
+    cancel.removeEventListener('click', onCancel);
+  };
+  const onOkHandler = () => { cleanup(); onOk(); };
+  const onCancel = () => { cleanup(); };
+  ok.addEventListener('click', onOkHandler);
+  cancel.addEventListener('click', onCancel);
+}
+
 async function deleteSession(sid) {
-  if (!confirm('Delete this conversation?')) return;
-  try {
-    await fetch('/api/sessions/' + sid, { method: 'DELETE' });
-    loadSessionList();
-    // If deleting the current session, reset to blank state and start new chat
-    if (state.sessionId === sid) {
-      startNewChat();
-    }
-  } catch(e) {}
+  showConfirm('Delete this conversation?', async () => {
+    try {
+      await fetch('/api/sessions/' + sid, { method: 'DELETE' });
+      loadSessionList();
+      if (state.sessionId === sid) {
+        startNewChat();
+      }
+    } catch(e) {}
+  });
 }
 
 function renderHistoryMessages(messages) {
