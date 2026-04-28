@@ -48,6 +48,14 @@ CREATE TABLE IF NOT EXISTS tasks (
 
 CREATE INDEX IF NOT EXISTS idx_tasks_session
     ON tasks(session_id);
+
+CREATE TABLE IF NOT EXISTS memories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -300,3 +308,66 @@ class SessionStore:
             return [{"id": r["task_id"], "title": r["title"], "description": r["description"], "status": r["status"]} for r in rows]
 
         return await asyncio.to_thread(_load)
+
+    # ------------------------------------------------------------------
+    # Memory persistence (global, not per-session)
+    # ------------------------------------------------------------------
+
+    async def memory_create(self, title: str, content: str) -> int:
+        self._ensure_ready()
+        now = _now()
+
+        def _create():
+            conn = sqlite3.connect(self.db_path)
+            cur = conn.execute(
+                "INSERT INTO memories (title, content, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                (title, content, now, now),
+            )
+            conn.commit()
+            rowid = cur.lastrowid
+            conn.close()
+            return rowid
+
+        return await asyncio.to_thread(_create)
+
+    async def memory_search(self, query: str) -> list[dict]:
+        self._ensure_ready()
+
+        def _search():
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT id, title, content, created_at, updated_at FROM memories WHERE title LIKE ? OR content LIKE ? ORDER BY updated_at DESC LIMIT 20",
+                (f"%{query}%", f"%{query}%"),
+            ).fetchall()
+            conn.close()
+            return [dict(r) for r in rows]
+
+        return await asyncio.to_thread(_search)
+
+    async def memory_list(self) -> list[dict]:
+        self._ensure_ready()
+
+        def _list():
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT id, title, content, created_at, updated_at FROM memories ORDER BY updated_at DESC"
+            ).fetchall()
+            conn.close()
+            return [dict(r) for r in rows]
+
+        return await asyncio.to_thread(_list)
+
+    async def memory_delete(self, mid: int) -> bool:
+        self._ensure_ready()
+
+        def _delete():
+            conn = sqlite3.connect(self.db_path)
+            cur = conn.execute("DELETE FROM memories WHERE id=?", (mid,))
+            conn.commit()
+            deleted = cur.rowcount > 0
+            conn.close()
+            return deleted
+
+        return await asyncio.to_thread(_delete)

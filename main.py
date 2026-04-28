@@ -59,7 +59,7 @@ class AppState:
             workspace_path=wsp,
             skill_dirs=s.skill_dirs,
         )
-        agent = Agent(settings)
+        agent = Agent(settings, store=self.store)
         agent.initialize()
         session = SessionState(agent=agent)
         self.sessions[sid] = session
@@ -75,7 +75,7 @@ class AppState:
             workspace_path=s.workspace_path or str(Path.cwd()),
             skill_dirs=s.skill_dirs,
         )
-        agent = Agent(settings)
+        agent = Agent(settings, store=self.store)
         agent.initialize()
         session = SessionState(agent=agent)
         self.sessions[sid] = session
@@ -277,6 +277,22 @@ async def delete_session(sid: str):
     return JSONResponse({"ok": True})
 
 
+@app.get("/api/memories")
+async def list_memories():
+    await state.ensure_store()
+    memories = await state.store.memory_list()
+    return JSONResponse({"memories": memories})
+
+
+@app.delete("/api/memories/{mid}")
+async def delete_memory(mid: int):
+    await state.ensure_store()
+    deleted = await state.store.memory_delete(mid)
+    if not deleted:
+        return JSONResponse({"error": "Memory not found"}, status_code=404)
+    return JSONResponse({"ok": True})
+
+
 @app.get("/api/sessions/{sid}/messages")
 async def get_session_messages(sid: str):
     await state.ensure_store()
@@ -426,7 +442,7 @@ async def websocket_endpoint(ws: WebSocket):
                     active_provider=active,
                 )
                 old_messages = agent.messages
-                new_agent = Agent(state.settings)
+                new_agent = Agent(state.settings, store=state.store)
                 new_agent.initialize()
                 new_agent.messages = old_messages
                 new_agent.tasks = agent.tasks

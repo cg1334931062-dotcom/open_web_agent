@@ -28,7 +28,7 @@ class ProviderConfig:
 SYSTEM_PROMPT_TEMPLATE = """You are an AI coding agent with full access to a Linux environment.
 
 ABILITIES:
-You can read, write, and edit files, execute bash commands, search files with glob and grep, list directories, search the web, fetch URLs, and manage tasks (task_create, task_update, task_list).
+You can read, write, and edit files, execute bash commands, search files with glob and grep, list directories, search the web, fetch URLs, manage tasks (task_create, task_update, task_list), and use persistent memory (memory_create, memory_search, memory_list, memory_delete). At the start of EVERY new conversation, BEFORE responding to the user's first message, call memory_list to load all memories. This is MANDATORY — memories contain user preferences and instructions you must follow. Use memory_create when the user shares preferences, facts, or project knowledge worth remembering. Keep memories SHORT — one sentence each.
 
 CORE WORKFLOW — For any request that requires more than one step:
 1. FIRST call task_create to break the work into clear, ordered tasks
@@ -120,8 +120,9 @@ class AgentSettings:
 
 
 class Agent:
-    def __init__(self, settings: AgentSettings):
+    def __init__(self, settings: AgentSettings, store=None):
         self.settings = settings
+        self.store = store  # SessionStore reference for memory tools
         self.workspace = Path(settings.workspace_path).resolve() if settings.workspace_path else Path.cwd()
         self.messages: list = []
         self.llm: LLMClient | None = None
@@ -292,6 +293,74 @@ class Agent:
             else:
                 lines = [f"{t['id']}. [{t['status']}] {t['title']}" for t in self.tasks]
                 result = "\n".join(lines)
+            yield {"type": "tool_call_end", "tool_call_id": tool_call_id, "result": result, "elapsed": elapsed}
+            self._inject_tool_result(tool_call_id, result)
+            return
+
+        # Memory tools — stored globally via SessionStore
+        if name == "memory_create":
+            title = args.get("title", "")
+            content = args.get("content", "")
+            elapsed = round(time.time() - start, 1)
+            if not self.store:
+                msg = "Memory store not available"
+                yield {"type": "tool_call_error", "tool_call_id": tool_call_id, "error": msg, "elapsed": elapsed}
+                self._inject_tool_result(tool_call_id, f"Error: {msg}", is_error=True)
+                return
+            mid = await self.store.memory_create(title, content)
+            result = f"Saved memory #{mid}: {title}"
+            yield {"type": "tool_call_end", "tool_call_id": tool_call_id, "result": result, "elapsed": elapsed}
+            self._inject_tool_result(tool_call_id, result)
+            return
+
+        if name == "memory_search":
+            query = args.get("query", "")
+            elapsed = round(time.time() - start, 1)
+            if not self.store:
+                msg = "Memory store not available"
+                yield {"type": "tool_call_error", "tool_call_id": tool_call_id, "error": msg, "elapsed": elapsed}
+                self._inject_tool_result(tool_call_id, f"Error: {msg}", is_error=True)
+                return
+            memories = await self.store.memory_search(query)
+            if not memories:
+                result = f"No memories found for '{query}'."
+            else:
+                lines = [f"#{m['id']} [{m['title']}] {m['content'][:200]}" for m in memories]
+                result = f"Found {len(memories)} memory(s):\n" + "\n".join(lines)
+            yield {"type": "tool_call_end", "tool_call_id": tool_call_id, "result": result, "elapsed": elapsed}
+            self._inject_tool_result(tool_call_id, result)
+            return
+
+        if name == "memory_list":
+            elapsed = round(time.time() - start, 1)
+            if not self.store:
+                msg = "Memory store not available"
+                yield {"type": "tool_call_error", "tool_call_id": tool_call_id, "error": msg, "elapsed": elapsed}
+                self._inject_tool_result(tool_call_id, f"Error: {msg}", is_error=True)
+                return
+            memories = await self.store.memory_list()
+            if not memories:
+                result = "No memories stored yet."
+            else:
+                lines = [f"#{m['id']} [{m['title']}] {m['content'][:200]}" for m in memories]
+                result = f"{len(memories)} memory(s):\n" + "\n".join(lines)
+            yield {"type": "tool_call_end", "tool_call_id": tool_call_id, "result": result, "elapsed": elapsed}
+            self._inject_tool_result(tool_call_id, result)
+            return
+
+        if name == "memory_delete":
+            mid = int(args.get("id", 0))
+            elapsed = round(time.time() - start, 1)
+            if not self.store:
+                msg = "Memory store not available"
+                yield {"type": "tool_call_error", "tool_call_id": tool_call_id, "error": msg, "elapsed": elapsed}
+                self._inject_tool_result(tool_call_id, f"Error: {msg}", is_error=True)
+                return
+            deleted = await self.store.memory_delete(mid)
+            if deleted:
+                result = f"Deleted memory #{mid}."
+            else:
+                result = f"Memory #{mid} not found."
             yield {"type": "tool_call_end", "tool_call_id": tool_call_id, "result": result, "elapsed": elapsed}
             self._inject_tool_result(tool_call_id, result)
             return

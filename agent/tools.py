@@ -218,6 +218,49 @@ TOOL_DEFINITIONS = [
             "required": [],
         },
     },
+    {
+        "name": "memory_create",
+        "description": "Save a piece of information to persistent memory. Use this when the user shares preferences, project knowledge, feedback, or anything worth remembering across sessions. Memories are global and available in all future conversations.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Short descriptive title for this memory"},
+                "content": {"type": "string", "description": "The information to remember"},
+            },
+            "required": ["title", "content"],
+        },
+    },
+    {
+        "name": "memory_search",
+        "description": "Search persistent memory for relevant information. Use this at the start of a conversation or when you need context from past interactions. Returns matching memories ordered by recency.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search keywords"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "memory_list",
+        "description": "List all stored memories. Use this to review what the user has told you in the past.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "memory_delete",
+        "description": "Delete a memory by its ID. Use this when the user asks to forget something.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "number", "description": "Memory ID to delete"},
+            },
+            "required": ["id"],
+        },
+    },
 ]
 
 TOOL_NAME_MAP = {t["name"]: t for t in TOOL_DEFINITIONS}
