@@ -1,6 +1,7 @@
 import json
 import re
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -10,6 +11,18 @@ from .tools import (
     ToolResult, ToolError, AskUserSignal,
 )
 from .skills import SkillRegistry
+
+
+@dataclass
+class ProviderConfig:
+    """A named LLM provider configuration."""
+    name: str                                        # display name, e.g. "Claude Opus"
+    provider: str = "anthropic"                       # "anthropic" or "openai"
+    api_key: str = ""
+    model: str = ""
+    base_url: str = ""
+    timeout: int = 120                                # request timeout in seconds
+    models: list[str] = field(default_factory=list)   # all available model names
 
 
 SYSTEM_PROMPT_TEMPLATE = """You are an AI coding agent with full access to a Linux environment.
@@ -53,13 +66,57 @@ class AgentSettings:
         base_url: str = "",
         workspace_path: str = "",
         skill_dirs: list[str] | None = None,
+        providers: list[dict] | None = None,
+        active_provider: str = "",
     ):
+        # Backward-compat single-provider fields
         self.provider = provider
         self.api_key = api_key
         self.model = model
         self.base_url = base_url
         self.workspace_path = workspace_path
         self.skill_dirs = skill_dirs or []
+        # Multi-provider support
+        self.providers: dict[str, ProviderConfig] = {}
+        if providers:
+            for p in providers:
+                if isinstance(p, dict):
+                    p = {k: v for k, v in p.items()}  # shallow copy
+                    if "apiKey" in p:
+                        p["api_key"] = p.pop("apiKey")
+                    if "baseUrl" in p:
+                        p["base_url"] = p.pop("baseUrl")
+                    if "timeout" not in p:
+                        p["timeout"] = 120
+                    cfg = ProviderConfig(**p)
+                else:
+                    cfg = p
+                self.providers[cfg.name] = cfg
+        self.active_provider = active_provider
+
+    @property
+    def active_config(self) -> ProviderConfig | None:
+        """Return the active provider config with the selected model, or None."""
+        if not self.active_provider or not self.providers:
+            return None
+        parts = self.active_provider.split("|", 1)
+        name = parts[0]
+        model_override = parts[1] if len(parts) > 1 else ""
+        base = self.providers.get(name)
+        if not base:
+            return None
+        cfg = ProviderConfig(
+            name=base.name,
+            provider=base.provider,
+            api_key=base.api_key,
+            model=model_override or base.model,
+            base_url=base.base_url,
+        )
+        return cfg
+
+    def get_provider_list(self) -> list[dict]:
+        """Return all provider configs as serializable dicts (without api_key for frontend)."""
+        return [{"name": c.name, "provider": c.provider, "model": c.model, "models": c.models, "base_url": c.base_url, "timeout": c.timeout} for c in self.providers.values()]
 
 
 class Agent:
@@ -82,6 +139,13 @@ class Agent:
 
     def _create_llm_client(self) -> LLMClient:
         s = self.settings
+        cfg = s.active_config
+        if cfg:
+            timeout = cfg.timeout or 120
+            if cfg.provider == "openai":
+                return OpenAIClient(api_key=cfg.api_key, model=cfg.model or "gpt-4o", base_url=cfg.base_url or None, timeout=timeout)
+            return AnthropicClient(api_key=cfg.api_key, model=cfg.model or "claude-sonnet-4-20250514", base_url=cfg.base_url or None, timeout=timeout)
+        # Legacy fallback
         if s.provider == "openai":
             return OpenAIClient(api_key=s.api_key, model=s.model or "gpt-4o", base_url=s.base_url or None)
         return AnthropicClient(api_key=s.api_key, model=s.model or "claude-sonnet-4-20250514", base_url=s.base_url or None)
@@ -261,7 +325,8 @@ class Agent:
 
         # Skill tools
         skill_result = await self.skills.execute_skill(name, _workspace=self.workspace, **args)
-        yield {"type": "tool_call_end", "tool_call_id": tool_call_id, "result": skill_result}
+        elapsed = round(time.time() - start, 1)
+        yield {"type": "tool_call_end", "tool_call_id": tool_call_id, "result": skill_result, "elapsed": elapsed}
         self._inject_tool_result(tool_call_id, skill_result)
 
     def _inject_tool_result(self, tool_call_id: str, content: str, is_error: bool = False):

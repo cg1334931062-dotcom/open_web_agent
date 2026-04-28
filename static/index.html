@@ -1784,6 +1784,26 @@ body {
   background: var(--bg-hover);
 }
 
+/* Provider cards */
+.provider-card {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  margin-bottom: 8px;
+  background: var(--bg-tertiary);
+}
+.provider-card:nth-child(1) { border-left-color: #6366f1; }
+.provider-card:nth-child(2) { border-left-color: #10b981; }
+.provider-card:nth-child(3) { border-left-color: #f59e0b; }
+.provider-card:nth-child(4) { border-left-color: #ef4444; }
+.provider-card:nth-child(5) { border-left-color: #8b5cf6; }
+.provider-card:nth-child(2n+1) { background: rgba(99,102,241,0.03); }
+.provider-card:nth-child(2n) { background: rgba(16,185,129,0.03); }
+.provider-card input, .provider-card select { margin-bottom: 4px; }
+.provider-card input:last-child, .provider-card select:last-child { margin-bottom: 0; }
+.provider-card .provider-remove { flex-shrink: 0; }
+
 /* Task list */
 .task-item {
   padding: 8px 12px;
@@ -1859,25 +1879,15 @@ body {
     <div class="panel-content" id="skillsContainer"></div>
   </div>
   <div id="panelSettings" class="panel-section" style="display:none;flex-direction:column;height:100%;">
-    <div class="panel-header">Settings</div>
-    <div class="panel-content settings-section" id="settingsContainer">
-      <label class="settings-label">Provider</label>
-      <select class="settings-select" id="setProvider">
-        <option value="anthropic">Anthropic</option>
-        <option value="openai">OpenAI</option>
-      </select>
-      <label class="settings-label">API Key</label>
-      <input class="settings-input" type="password" id="setApiKey" placeholder="sk-ant-...">
-      <label class="settings-label">Base URL <span style="color:var(--text-muted);font-weight:400;text-transform:none;">(optional)</span></label>
-      <input class="settings-input" type="text" id="setBaseURL" placeholder="https://api.anthropic.com">
-      <label class="settings-label">
-        Models
-        <span style="font-weight:400;text-transform:none;color:var(--text-muted);font-size:11px;">(one per line)</span>
-      </label>
-      <textarea class="settings-input" id="setModelList" rows="4" placeholder="claude-sonnet-4-20250514&#10;claude-opus-4-20250514&#10;claude-haiku-4-20251001" style="resize:none;overflow:hidden;font-family:var(--font-mono);font-size:12px;" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
-      <label class="settings-label">Default Model</label>
-      <select class="settings-select" id="setModel"></select>
-      <button class="btn btn-primary" id="saveSettings" style="width:100%;justify-content:center;margin-top:8px;">Apply Settings</button>
+    <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;">
+      <span>Providers</span>
+      <button class="btn btn-ghost btn-icon" id="addProviderBtn" title="Add provider" style="width:24px;height:24px;padding:0;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+    </div>
+    <div class="panel-content" id="providersContainer" style="flex:1;overflow-y:auto;"></div>
+    <div style="padding:12px;border-top:1px solid var(--border);">
+      <button class="btn btn-primary" id="saveSettings" style="width:100%;justify-content:center;">Apply Settings</button>
     </div>
   </div>
   <div id="panelTasks" class="panel-section" style="display:none;flex-direction:column;height:100%;">
@@ -2009,6 +2019,8 @@ const state = {
     baseUrl: localStorage.getItem('wa_base_url') || '',
     workspace: localStorage.getItem('wa_workspace') || '',
     modelList: localStorage.getItem('wa_model_list') || '',
+    providers: JSON.parse(localStorage.getItem('wa_providers') || '[]'),
+    activeProvider: localStorage.getItem('wa_active_provider') || '',
   },
   skills: [],
   tasks: [],
@@ -2245,64 +2257,160 @@ function parseModelList(raw) {
   return raw.split('\n').map(s => s.trim()).filter(Boolean);
 }
 
-function populateModelSelects() {
-  const models = parseModelList(state.settings.modelList);
-  const current = state.settings.model;
-
-  // Populate both the settings dropdown and the chat bar dropdown
-  ['setModel', 'modelSelect'].forEach(id => {
-    const sel = document.getElementById(id);
-    if (!sel) return;
-    sel.innerHTML = models.map(m =>
-      `<option value="${m}"${m === current ? ' selected' : ''}>${m}</option>`
-    ).join('') || '<option value="">— no models configured —</option>';
-  });
+function autoResizeTA(ta) {
+  const lines = (ta.value || '').split('\n').length;
+  const minH = Math.max(lines, 2) * 22; // 2 rows min, ~22px per row
+  ta.style.height = 'auto';
+  ta.style.height = Math.max(ta.scrollHeight, minH) + 'px';
 }
 
-// Chat bar model selection
-document.getElementById('modelSelect').addEventListener('change', function () {
-  state.settings.model = this.value;
-  localStorage.setItem('wa_model', this.value);
-  document.getElementById('setModel').value = this.value;
-  sendWS({type: 'settings_update', settings: state.settings});
-});
-
-// Settings model dropdown ← keep in sync
-document.getElementById('setModel').addEventListener('change', function () {
-  state.settings.model = this.value;
-  localStorage.setItem('wa_model', this.value);
-  document.getElementById('modelSelect').value = this.value;
-  sendWS({type: 'settings_update', settings: state.settings});
-});
-
 // ===================================================================
-// Settings
+// Multi-Provider Settings
 // ===================================================================
-function loadSettingsUI() {
-  document.getElementById('setApiKey').value = state.settings.apiKey;
-  document.getElementById('setProvider').value = state.settings.provider;
-  document.getElementById('setModelList').value = state.settings.modelList;
-  document.getElementById('setBaseURL').value = state.settings.baseUrl;
+function renderProviders() {
+  const container = document.getElementById('providersContainer');
+  const providers = state.settings.providers || [];
+  if (providers.length === 0) {
+    container.innerHTML = '<div style="padding:16px;font-size:13px;color:var(--text-muted);text-align:center;">No providers configured.<br>Click + to add one.</div>';
+  } else {
+    container.innerHTML = providers.map((p, i) => {
+      const models = Array.isArray(p.models) ? p.models.join('\n') : (p.model || '');
+      return `
+      <div class="provider-card" data-idx="${i}">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+          <input class="settings-input provider-name" value="${escapeHtml(p.name || '')}" placeholder="Name (e.g. Claude Opus)" style="flex:1;margin:0;font-weight:600;">
+          <button class="btn btn-ghost btn-icon provider-remove" title="Remove" style="width:24px;height:24px;padding:0;color:var(--error);">✕</button>
+        </div>
+        <select class="settings-select provider-type" style="margin-bottom:4px;">
+          <option value="anthropic"${p.provider === 'anthropic' ? ' selected' : ''}>Anthropic</option>
+          <option value="openai"${p.provider === 'openai' ? ' selected' : ''}>OpenAI</option>
+        </select>
+        <input class="settings-input provider-key" type="password" value="${escapeHtml(p.apiKey || '')}" placeholder="API Key" style="margin-bottom:4px;font-size:12px;">
+        <textarea class="settings-input provider-models" placeholder="Models (one per line)&#10;claude-sonnet-4-20250514&#10;claude-opus-4-20250514" style="margin-bottom:4px;font-size:12px;resize:none;overflow:hidden;font-family:var(--font-mono);min-height:44px;" rows="2" oninput="autoResizeTA(this)">${escapeHtml(models)}</textarea>
+        <div style="display:flex;gap:6px;">
+          <input class="settings-input provider-url" value="${escapeHtml(p.baseUrl || '')}" placeholder="Base URL (required)" style="flex:1;font-size:12px;">
+          <input class="settings-input provider-timeout" value="${escapeHtml(String(p.timeout || 120))}" placeholder="Timeout (s)" title="Request timeout in seconds (default 120)" style="width:70px;font-size:12px;text-align:center;">
+        </div>
+      </div>
+    `}).join('');
+    // Auto-resize all provider model textareas — use immediate + delayed for reliability
+    container.querySelectorAll('.provider-models').forEach(ta => autoResizeTA(ta));
+    setTimeout(() => {
+      container.querySelectorAll('.provider-models').forEach(ta => autoResizeTA(ta));
+    }, 50);
+  }
+  // Update model selector dropdown
   populateModelSelects();
 }
+
+function collectProviders() {
+  const cards = document.querySelectorAll('.provider-card');
+  const providers = [];
+  cards.forEach(card => {
+    const name = card.querySelector('.provider-name')?.value.trim();
+    if (!name) return;
+    const modelsRaw = card.querySelector('.provider-models')?.value || '';
+    const models = modelsRaw.split('\n').map(s => s.trim()).filter(Boolean);
+    providers.push({
+      name: name,
+      provider: card.querySelector('.provider-type')?.value || 'anthropic',
+      apiKey: card.querySelector('.provider-key')?.value || '',
+      models: models,
+      model: models[0] || '',
+      baseUrl: card.querySelector('.provider-url')?.value || '',
+      timeout: parseInt(card.querySelector('.provider-timeout')?.value) || 120,
+    });
+  });
+  return providers;
+}
+
+function populateModelSelects() {
+  const providers = state.settings.providers || [];
+  const sel = document.getElementById('modelSelect');
+  if (!sel) return;
+  if (providers.length === 0) {
+    sel.innerHTML = '<option value="">— no providers —</option>';
+    return;
+  }
+  // Build options: each model is a separate entry grouped by provider
+  let html = '';
+  providers.forEach(p => {
+    const models = Array.isArray(p.models) && p.models.length > 0 ? p.models : (p.model ? [p.model] : ['']);
+    models.forEach(m => {
+      const val = p.name + '|' + m;
+      const label = p.name + ' → ' + (m || '(default)');
+      const activeKey = state.settings.activeProvider || '';
+      const selected = activeKey === val ? ' selected' : '';
+      html += `<option value="${escapeHtml(val)}"${selected}>${escapeHtml(label)}</option>`;
+    });
+  });
+  sel.innerHTML = html;
+}
+
+document.getElementById('modelSelect').addEventListener('change', function () {
+  state.settings.activeProvider = this.value;
+  localStorage.setItem('wa_active_provider', this.value);
+  // Parse provider name and model from the combined value "name|model"
+  const parts = this.value.split('|');
+  const providerName = parts[0] || '';
+  const modelName = parts.slice(1).join('|') || '';
+  const prov = (state.settings.providers || []).find(p => p.name === providerName);
+  sendWS({type: 'settings_update', settings: {
+    ...state.settings,
+    active_provider: this.value,  // full "name|model" key
+    model: modelName,
+    provider: prov?.provider || 'anthropic',
+    apiKey: prov?.apiKey || state.settings.apiKey,
+    baseUrl: prov?.baseUrl || '',
+  }});
+});
+
+document.getElementById('addProviderBtn').addEventListener('click', () => {
+  const providers = collectProviders();
+  providers.push({name: '', provider: 'anthropic', apiKey: '', model: '', baseUrl: ''});
+  state.settings.providers = providers;
+  localStorage.setItem('wa_providers', JSON.stringify(providers));
+  renderProviders();
+});
+
+document.addEventListener('click', function (e) {
+  if (e.target.classList.contains('provider-remove')) {
+    const card = e.target.closest('.provider-card');
+    if (card) card.remove();
+    state.settings.providers = collectProviders();
+    localStorage.setItem('wa_providers', JSON.stringify(state.settings.providers));
+    renderProviders();
+  }
+});
 
 document.getElementById('saveSettings').addEventListener('click', () => {
-  state.settings.apiKey = document.getElementById('setApiKey').value;
-  state.settings.provider = document.getElementById('setProvider').value;
-  state.settings.modelList = document.getElementById('setModelList').value;
-  state.settings.model = document.getElementById('setModel').value;
-  state.settings.baseUrl = document.getElementById('setBaseURL').value;
-  localStorage.setItem('wa_api_key', state.settings.apiKey);
-  localStorage.setItem('wa_provider', state.settings.provider);
-  localStorage.setItem('wa_model_list', state.settings.modelList);
-  localStorage.setItem('wa_model', state.settings.model);
-  localStorage.setItem('wa_base_url', state.settings.baseUrl);
-  populateModelSelects();
+  state.settings.providers = collectProviders();
+  localStorage.setItem('wa_providers', JSON.stringify(state.settings.providers));
+  // Sync legacy fields from first provider for backward compat
+  if (state.settings.providers.length > 0) {
+    const p = state.settings.providers[0];
+    state.settings.apiKey = p.apiKey;
+    state.settings.provider = p.provider;
+    state.settings.model = p.model;
+    state.settings.baseUrl = p.baseUrl;
+    localStorage.setItem('wa_api_key', p.apiKey);
+    localStorage.setItem('wa_provider', p.provider);
+    localStorage.setItem('wa_model', p.model);
+    localStorage.setItem('wa_base_url', p.baseUrl);
+  }
+  // Set default active provider to first model of first provider
+  const provs = state.settings.providers;
+  const firstModel = provs[0]?.models?.[0] || provs[0]?.model || '';
+  state.settings.activeProvider = state.settings.activeProvider || (provs[0] ? provs[0].name + '|' + firstModel : '');
+  localStorage.setItem('wa_active_provider', state.settings.activeProvider);
   sendWS({type: 'settings_update', settings: state.settings});
   loadFileTree();
+  showBanner('success', 'Settings saved');
+  setTimeout(() => hideBanner(), 2000);
 });
 
-loadSettingsUI();
+// Load initial UI (defer to ensure DOM + localStorage are ready)
+setTimeout(renderProviders, 0);
 
 // ===================================================================
 // File Tree: Workspace Path
@@ -2592,6 +2700,19 @@ function handleWSMessage(msg) {
     case 'task_update':
       state.tasks = msg.tasks || [];
       renderTasks();
+      break;
+
+    case 'providers_updated':
+      // Merge backend provider list into frontend (preserve apiKeys)
+      if (msg.providers) {
+        const current = state.settings.providers || [];
+        state.settings.providers = msg.providers.map(p => {
+          const existing = current.find(c => c.name === p.name);
+          return {...p, apiKey: existing?.apiKey || p.apiKey || ''};
+        });
+      }
+      if (msg.active_provider) state.settings.activeProvider = msg.active_provider;
+      populateModelSelects();
       break;
 
     case 'skills_updated':
@@ -3214,7 +3335,7 @@ function updateInputState() {
     : state.processing ? 'Agent is working...'
     : 'Type a message...';
   document.getElementById('saveSettings').disabled = state.processing;
-  document.getElementById('setProvider').disabled = state.processing;
+  document.getElementById('addProviderBtn').disabled = state.processing;
   document.getElementById('modelSelect').disabled = state.processing;
   const nc2 = document.getElementById('newChatBtn2');
   if (nc2) nc2.style.opacity = state.processing ? '0.4' : '';

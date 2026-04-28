@@ -413,6 +413,8 @@ async def websocket_endpoint(ws: WebSocket):
                 await stop_agent()
                 s = data.get("settings", {})
                 old_key = state.settings.api_key
+                providers_raw = s.get("providers")
+                active = s.get("active_provider", "")
                 state.settings = AgentSettings(
                     provider=s.get("provider", "anthropic"),
                     api_key=s.get("apiKey") or s.get("api_key") or old_key,
@@ -420,15 +422,20 @@ async def websocket_endpoint(ws: WebSocket):
                     base_url=s.get("baseUrl", ""),
                     workspace_path=s.get("workspace") or s.get("workspace_path") or state.settings.workspace_path or "",
                     skill_dirs=s.get("skill_dirs", state.settings.skill_dirs),
+                    providers=providers_raw if isinstance(providers_raw, list) else None,
+                    active_provider=active,
                 )
                 old_messages = agent.messages
                 new_agent = Agent(state.settings)
                 new_agent.initialize()
                 new_agent.messages = old_messages
+                new_agent.tasks = agent.tasks
+                new_agent._task_counter = agent._task_counter
                 session.agent = new_agent
                 agent = new_agent
                 await send({"type": "info", "message": "Settings updated"})
                 await send({"type": "skills_updated", "skills": agent.skills.get_skills_info()})
+                await send({"type": "providers_updated", "providers": state.settings.get_provider_list(), "active_provider": state.settings.active_provider})
                 continue
 
             # --- Toggle skill ---

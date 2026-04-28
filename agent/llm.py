@@ -32,9 +32,9 @@ class LLMClient(ABC):
 
 
 class AnthropicClient(LLMClient):
-    def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514", base_url: str | None = None):
+    def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514", base_url: str | None = None, timeout: int = 120):
         import anthropic
-        kwargs = {"api_key": api_key}
+        kwargs = {"api_key": api_key, "timeout": float(timeout)}
         if base_url:
             kwargs["base_url"] = base_url
         self._client = anthropic.AsyncAnthropic(**kwargs)
@@ -110,15 +110,22 @@ class AnthropicClient(LLMClient):
                     yield {"type": "thinking_complete", "thinking": current_thinking}
 
         except Exception as e:
-            yield {"type": "error", "message": str(e)}
+            msg = str(e)
+            if "peer closed" in msg.lower() or "incomplete" in msg.lower():
+                msg = "Connection lost mid-stream. The provider may have timed out or dropped the connection. Try again or check your API key / base URL."
+            elif "timed out" in msg.lower() or "timeout" in msg.lower():
+                msg = "Request timed out. The model may be overloaded or the base URL is unreachable."
+            elif "connection" in msg.lower() and ("refused" in msg.lower() or "reset" in msg.lower()):
+                msg = f"Cannot reach the API server. Check your base URL and network. ({msg})"
+            yield {"type": "error", "message": msg}
 
 
 class OpenAIClient(LLMClient):
-    def __init__(self, api_key: str, model: str = "gpt-4o", base_url: str | None = None):
+    def __init__(self, api_key: str, model: str = "gpt-4o", base_url: str | None = None, timeout: int = 120):
         self._api_key = api_key
         self._model = model
         self._base_url = base_url or "https://api.openai.com/v1"
-        self._client = httpx.AsyncClient(timeout=120)
+        self._client = httpx.AsyncClient(timeout=float(timeout))
 
     def model_name(self) -> str:
         return self._model
@@ -295,4 +302,11 @@ class OpenAIClient(LLMClient):
                     }
 
         except Exception as e:
-            yield {"type": "error", "message": str(e)}
+            msg = str(e)
+            if "peer closed" in msg.lower() or "incomplete" in msg.lower():
+                msg = "Connection lost mid-stream. The provider may have timed out or dropped the connection. Try again or check your API key / base URL."
+            elif "timed out" in msg.lower() or "timeout" in msg.lower():
+                msg = "Request timed out. The model may be overloaded or the base URL is unreachable."
+            elif "connection" in msg.lower() and ("refused" in msg.lower() or "reset" in msg.lower()):
+                msg = f"Cannot reach the API server. Check your base URL and network."
+            yield {"type": "error", "message": msg}
