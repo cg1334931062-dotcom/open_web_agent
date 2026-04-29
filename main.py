@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 import traceback
 import uuid
 from contextlib import asynccontextmanager
@@ -32,6 +33,9 @@ class SessionState:
     message_checkpoint: int = 0  # index in agent.messages before current turn
     had_ask_user: bool = False   # skip suggestions if turn involved ask_user
     _llm_error: bool = False     # skip suggestions after LLM error
+    _total_input: int = 0
+    _total_output: int = 0
+    _turn_start: float = 0.0
 
 
 class AppState:
@@ -277,6 +281,13 @@ async def delete_session(sid: str):
     return JSONResponse({"ok": True})
 
 
+@app.get("/api/usage")
+async def daily_usage():
+    await state.ensure_store()
+    usage = await state.store.get_daily_usage(7)
+    return JSONResponse({"usage": usage})
+
+
 @app.get("/api/memories")
 async def list_memories():
     await state.ensure_store()
@@ -388,7 +399,14 @@ async def websocket_endpoint(ws: WebSocket):
                         except Exception:
                             pass
                     session.had_ask_user = False
-                    await send({"type": "turn_complete", "suggestions": suggestions})
+                    turn_elapsed = round(time.time() - session._turn_start, 1)
+                    usage_info = {"input": session._total_input, "output": session._total_output}
+                    if session._total_input > 0 or session._total_output > 0:
+                        cfg = agent.settings.active_config
+                        provider = cfg.provider if cfg else agent.settings.provider
+                        model = cfg.model if cfg else agent.settings.model
+                        asyncio.create_task(state.store.add_usage(provider, model, session._total_input, session._total_output))
+                    await send({"type": "turn_complete", "suggestions": suggestions, "usage": usage_info, "elapsed": turn_elapsed})
                     # Persist messages after turn completes
                     asyncio.create_task(_persist_session())
             except asyncio.CancelledError:
@@ -535,6 +553,9 @@ async def websocket_endpoint(ws: WebSocket):
 async def run_agent_turn(agent: Agent, send, session: SessionState):
     """Run one agent turn: LLM call → tool execution → repeat until done."""
     session._llm_error = False
+    session._total_input = 0
+    session._total_output = 0
+    session._turn_start = time.time()
     for _ in range(25):  # max 25 turns per user message
         if session.canceled:
             return
@@ -549,7 +570,10 @@ async def run_agent_turn(agent: Agent, send, session: SessionState):
                 await send({"type": "thinking_end"})
                 return
             etype = event["type"]
-            if etype == "thinking_delta":
+            if etype == "usage":
+                session._total_input += event.get("input_tokens", 0)
+                session._total_output += event.get("output_tokens", 0)
+            elif etype == "thinking_delta":
                 await send(event)
             elif etype == "text_delta":
                 has_content = True

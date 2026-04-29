@@ -2,11 +2,12 @@
 import os
 
 files = args.get("files", [])
-workspace = args.get("workspace", ".")
+# workspace is injected as a separate variable (not inside args)
+ws = workspace if isinstance(workspace, str) else str(workspace)
 
 results = []
 for f in files:
-    path = os.path.join(workspace, f)
+    path = os.path.join(ws, f)
     if not os.path.exists(path):
         results.append(f"⚠️ {f}: File not found")
         continue

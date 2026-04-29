@@ -196,6 +196,8 @@ class Agent:
                     "tool_name": event["name"],
                     "args": event["input"],
                 }
+            elif etype == "usage":
+                yield event
             elif etype == "error":
                 yield event
 

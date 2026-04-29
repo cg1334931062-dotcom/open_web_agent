@@ -612,55 +612,14 @@ body {
 }
 
 /* File Preview */
-.file-preview-overlay {
-  position: fixed; inset: 0; z-index: 50;
-  background: rgba(0,0,0,0.6);
-  display: none; align-items: center; justify-content: center;
-  padding: 20px;
-}
-.file-preview-overlay.open { display: flex; }
-.file-preview-modal {
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  width: 100%; max-width: 900px; max-height: 80vh;
-  display: flex; flex-direction: column;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-  overflow: hidden;
-}
-.file-preview-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--border);
-}
 .file-preview-name { font-size: 14px; font-weight: 600; }
-.file-preview-header .btn-ghost {
-  width: 28px; height: 28px; padding: 0;
-  display: flex; align-items: center; justify-content: center;
-  border-radius: 6px;
-}
 .file-preview-content {
   flex: 1; overflow: auto; padding: 20px;
   font-family: var(--font-mono); font-size: 13px; line-height: 1.5;
 }
 .file-preview-content pre { margin: 0; white-space: pre-wrap; }
 
-/* AskUser Modal */
-.ask-user-overlay {
-  position: fixed; inset: 0; z-index: 50;
-  background: rgba(0,0,0,0.6);
-  display: none; align-items: center; justify-content: center;
-  padding: 20px;
-}
-.ask-user-overlay.open { display: flex; }
-.ask-user-modal {
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  width: 100%; max-width: 500px;
-  padding: 24px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-}
+/* AskUser specifics */
 .ask-user-question { font-size: 15px; line-height: 1.5; margin-bottom: 16px; }
 .ask-user-input {
   width: 100%; padding: 10px 12px;
@@ -671,28 +630,35 @@ body {
 }
 .ask-user-input:focus { border-color: var(--accent); }
 
-/* Confirm Dialog — same style as ask_user */
-.confirm-overlay {
-  position: fixed; inset: 0; z-index: 100;
+/* === Unified Modal System === */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 50;
   background: rgba(0,0,0,0.6);
   display: none; align-items: center; justify-content: center;
   padding: 20px;
 }
-.confirm-overlay.open { display: flex; }
-.confirm-modal {
+.modal-overlay.open { display: flex; }
+.modal-card {
   background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: 12px;
-  width: 100%; max-width: 400px;
-  padding: 24px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  display: flex; flex-direction: column;
+  max-height: 80vh;
+  overflow: hidden;
 }
-.confirm-message {
-  font-size: 15px; line-height: 1.5; margin-bottom: 20px;
-  color: var(--text-primary);
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px; font-weight: 600;
 }
-.confirm-actions {
+.modal-body {
+  flex: 1; overflow-y: auto; padding: 20px;
+}
+.modal-footer {
   display: flex; gap: 10px; justify-content: flex-end;
+  padding: 12px 20px; border-top: 1px solid var(--border);
 }
 
 /* Empty state */
@@ -1417,12 +1383,7 @@ body {
 /* =================================================================
    MODALS — dialogs with title bars
    ================================================================= */
-.file-preview-overlay {
-  background: rgba(0,0,0,0.6);
-  display: none;
-}
-.file-preview-overlay.open { display: flex; }
-.file-preview-modal {
+.modal-card {
   background: var(--win-button-face);
   border: 2px solid;
   border-color: var(--win-button-highlight) var(--win-button-dark-shadow)
@@ -1432,7 +1393,7 @@ body {
   border-radius: 8px;
   overflow: hidden;
 }
-.file-preview-header {
+.modal-header {
   background: linear-gradient(90deg, var(--win-active-title), #1084d0);
   color: var(--win-active-title-text);
   padding: 3px 8px;
@@ -1440,46 +1401,18 @@ body {
   font-size: 12px;
   font-weight: bold;
 }
-.file-preview-header .btn-ghost {
+.modal-header .btn-ghost {
   background: var(--win-button-face);
   border: 2px solid;
   border-color: var(--win-button-highlight) var(--win-button-dark-shadow)
                 var(--win-button-dark-shadow) var(--win-button-highlight);
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  font-size: 10px;
-  line-height: 16px;
-  text-align: center;
-  color: var(--text-primary);
+  width: 20px; height: 20px; padding: 0;
+  font-size: 10px; line-height: 16px; text-align: center; color: var(--text-primary);
 }
-.file-preview-header .btn-ghost svg {
-  display: none;
-}
-.file-preview-header .btn-ghost::after {
-  content: "X";
-  font-weight: bold;
-  font-size: 11px;
-}
-.file-preview-content {
-  padding: 8px;
-  font-size: 12px;
-}
-.file-preview-content code {
-  font-size: 11px;
-}
-
-/* Ask User Modal */
-.ask-user-modal {
-  background: var(--win-button-face);
-  border: 2px solid;
-  border-color: var(--win-button-highlight) var(--win-button-dark-shadow)
-                var(--win-button-dark-shadow) var(--win-button-highlight);
-  box-shadow: inset 1px 1px 0 var(--win-button-highlight),
-              inset -1px -1px 0 var(--win-button-shadow);
-  border-radius: 8px;
-  padding: 16px;
-}
+.modal-header .btn-ghost svg { display: none; }
+.modal-header .btn-ghost::after { content: "X"; font-weight: bold; font-size: 11px; }
+.modal-body { padding: 8px; font-size: 12px; }
+.modal-footer { padding: 8px; border-top: 2px solid var(--win-button-shadow); }
 .ask-user-question {
   font-size: 12px;
   font-weight: bold;
@@ -1497,21 +1430,6 @@ body {
   border-radius: 6px;
   min-height: 50px;
 }
-
-/* Confirm Modal */
-.confirm-overlay { display: none; }
-.confirm-overlay.open { display: flex; }
-.confirm-modal {
-  background: var(--win-button-face);
-  border: 2px solid;
-  border-color: var(--win-button-highlight) var(--win-button-dark-shadow)
-                var(--win-button-dark-shadow) var(--win-button-highlight);
-  box-shadow: inset 1px 1px 0 var(--win-button-highlight),
-              inset -1px -1px 0 var(--win-button-shadow);
-  border-radius: 8px;
-  padding: 16px;
-}
-.confirm-message { font-size: 12px; }
 
 /* =================================================================
    SCROLLBARS — 16px wide with raised thumbs
@@ -1784,6 +1702,12 @@ body {
   background: var(--bg-hover);
 }
 
+.usage-badge {
+  font-size: 11px; color: var(--text-muted);
+  padding: 2px 0 6px 40px;
+  font-family: var(--font-mono);
+}
+
 .memory-card .btn-ghost:hover {
   color: var(--error) !important;
   background: rgba(239,68,68,0.1);
@@ -1841,6 +1765,9 @@ body {
 
 <!-- Activity Bar -->
 <div class="activity-bar">
+  <button class="activity-btn" data-panel="usage" title="Usage">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+  </button>
   <button class="activity-btn active" data-panel="files" title="Files">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
   </button>
@@ -1862,6 +1789,10 @@ body {
 
 <!-- Side Panel -->
 <div class="side-panel" id="sidePanel">
+  <div id="panelUsage" class="panel-section" style="display:none;flex-direction:column;height:100%;">
+    <div class="panel-header">Token Usage (7 days)</div>
+    <div class="panel-content" id="usageContainer" style="flex:1;overflow-y:auto;font-size:12px;font-family:var(--font-mono);"></div>
+  </div>
   <div id="panelFiles" class="panel-section" style="display:flex;flex-direction:column;height:100%;">
     <div class="panel-header" style="padding:6px 8px;flex-direction:column;align-items:stretch;gap:4px;">
       <div style="display:flex;align-items:center;justify-content:space-between;">
@@ -1963,9 +1894,9 @@ body {
 </div>
 
 <!-- File Preview Overlay -->
-<div class="file-preview-overlay" id="filePreviewOverlay" onclick="if(event.target===this)closeFilePreview()">
-  <div class="file-preview-modal">
-    <div class="file-preview-header">
+<div class="modal-overlay" id="filePreviewOverlay" onclick="if(event.target===this)closeFilePreview()">
+  <div class="modal-card" style="width:100%;max-width:900px;">
+    <div class="modal-header">
       <span class="file-preview-name" id="filePreviewName">File</span>
       <button class="btn btn-ghost btn-icon" onclick="closeFilePreview()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -1976,35 +1907,51 @@ body {
 </div>
 
 <!-- AskUser Modal -->
-<div class="ask-user-overlay" id="askUserOverlay">
-  <div class="ask-user-modal">
-    <div class="ask-user-question" id="askUserQuestion"></div>
-    <textarea class="ask-user-input" id="askUserInput" placeholder="Your response..." rows="3"></textarea>
-    <div style="display:flex;gap:8px;justify-content:flex-end;">
+<div class="modal-overlay" id="askUserOverlay">
+  <div class="modal-card" style="width:100%;max-width:500px;">
+    <div class="modal-header">
+      <span>Question</span>
+      <button class="btn btn-ghost btn-icon" onclick="document.getElementById('askUserOverlay').classList.remove('open')" style="width:24px;height:24px;padding:0;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="ask-user-question" id="askUserQuestion"></div>
+      <textarea class="ask-user-input" id="askUserInput" placeholder="Your response..." rows="3"></textarea>
+    </div>
+    <div class="modal-footer">
       <button class="btn btn-primary" id="askUserSubmit">Send</button>
     </div>
   </div>
 </div>
 
 <!-- Memories Modal -->
-<div class="confirm-overlay" id="memoriesOverlay" onclick="if(event.target===this)closeMemories()">
-  <div class="confirm-modal" style="max-width:640px;max-height:75vh;display:flex;flex-direction:column;padding:28px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
-      <span style="font-size:18px;font-weight:700;">Memories</span>
-      <button class="btn btn-ghost btn-icon" onclick="closeMemories()" style="width:28px;height:28px;padding:0;border-radius:6px;">
+<div class="modal-overlay" id="memoriesOverlay" onclick="if(event.target===this)closeMemories()">
+  <div class="modal-card" style="width:100%;max-width:640px;">
+    <div class="modal-header">
+      <span>Memories</span>
+      <button class="btn btn-ghost btn-icon" onclick="closeMemories()" style="width:24px;height:24px;padding:0;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
-    <div id="memoriesList" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:10px;"></div>
+    <div class="modal-body" id="memoriesList" style="display:flex;flex-direction:column;gap:10px;"></div>
   </div>
 </div>
 
 <!-- Confirm Modal -->
-<div class="confirm-overlay" id="confirmOverlay">
-  <div class="confirm-modal">
-    <div class="confirm-message" id="confirmMessage"></div>
-    <div class="confirm-actions">
-      <button class="btn btn-ghost" id="confirmCancel">Cancel</button>
+<div class="modal-overlay" id="confirmOverlay">
+  <div class="modal-card" style="width:100%;max-width:400px;">
+    <div class="modal-header">
+      <span>Confirm</span>
+      <button class="btn btn-ghost btn-icon" id="confirmCancel" style="width:24px;height:24px;padding:0;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div id="confirmMessage" style="font-size:15px;line-height:1.5;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="confirmCancel2">Cancel</button>
       <button class="btn btn-danger" id="confirmOk">Delete</button>
     </div>
   </div>
@@ -2061,12 +2008,45 @@ document.querySelectorAll('.activity-btn').forEach(btn => {
 });
 
 function showPanel(name) {
-  ['files','skills','settings','history','tasks'].forEach(p => {
+  ['files','skills','settings','history','tasks','usage'].forEach(p => {
     const el = document.getElementById('panel' + p.charAt(0).toUpperCase() + p.slice(1));
     el.style.display = p === name ? 'flex' : 'none';
   });
   if (name === 'history') loadSessionList();
   if (name === 'tasks') renderTasks();
+  if (name === 'usage') loadUsage();
+}
+
+async function loadUsage() {
+  const container = document.getElementById('usageContainer');
+  try {
+    const resp = await fetch('/api/usage');
+    const data = await resp.json();
+    const usage = data.usage || [];
+    if (usage.length === 0) {
+      container.innerHTML = '<div style="padding:16px;color:var(--text-muted);text-align:center;">No usage data yet</div>';
+      return;
+    }
+    const maxOut = Math.max(...usage.map(u => u.output_tokens), 1);
+    container.innerHTML = usage.map(u => {
+      const w = Math.max((u.output_tokens / maxOut) * 100, 2);
+      return `<div style="padding:8px 12px;border-bottom:1px solid var(--border-light);">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <span style="font-weight:600;">${u.date}</span>
+          <span>${(u.input_tokens+u.output_tokens).toLocaleString()} total</span>
+        </div>
+        <div style="display:flex;gap:12px;font-size:11px;color:var(--text-secondary);margin-bottom:3px;">
+          <span>↑ ${u.input_tokens.toLocaleString()}</span>
+          <span>↓ ${u.output_tokens.toLocaleString()}</span>
+        </div>
+        <div style="height:6px;background:var(--bg-tertiary);border-radius:3px;overflow:hidden;">
+          <div style="height:100%;width:${w}%;background:var(--accent);border-radius:3px;min-width:2px;"></div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    container.innerHTML = '<div style="padding:16px;color:var(--error);">Failed to load</div>';
+  }
 }
 
 // ===================================================================
@@ -2692,6 +2672,7 @@ function handleWSMessage(msg) {
       if (msg.suggestions && msg.suggestions.length > 0) {
         renderSuggestions(msg.suggestions);
       }
+      showUsage(msg.usage, msg.elapsed);
       loadFileTree();
       renderTasks();
       if (document.getElementById('panelHistory').style.display !== 'none') {
@@ -3047,6 +3028,29 @@ function errorToolCall(id, error, elapsed) {
 
 function findToolBlock(id) {
   return currentAssistantGroup ? currentAssistantGroup.querySelector(`.tool-call-block[data-id="${id}"]`) : null;
+}
+
+function showUsage(usage, elapsed) {
+  if (!usage && !elapsed) return;
+  const input = usage?.input;
+  const output = usage?.output;
+  const estimated = usage?.estimated;
+  let group = currentAssistantGroup;
+  if (!group) {
+    group = state.messagesContainer.querySelector('.message-group:last-child');
+  }
+  if (!group) {
+    group = document.createElement('div');
+    group.className = 'message-group';
+    state.messagesContainer.appendChild(group);
+  }
+  const badge = document.createElement('div');
+  badge.className = 'usage-badge';
+  const inStr = estimated ? `~${input || 0}` : (input || 0);
+  const outStr = estimated ? `~${output || 0}` : (output || 0);
+  badge.textContent = `${inStr}↑ · ${outStr}↓ · ${elapsed || '?'}s`;
+  group.appendChild(badge);
+  scrollToBottom();
 }
 
 function endTurn() {
@@ -3623,16 +3627,16 @@ function showConfirm(message, onOk) {
   document.getElementById('confirmMessage').textContent = message;
   document.getElementById('confirmOverlay').classList.add('open');
   const ok = document.getElementById('confirmOk');
-  const cancel = document.getElementById('confirmCancel');
+  const cancelBtns = ['confirmCancel', 'confirmCancel2'].map(id => document.getElementById(id)).filter(Boolean);
   const cleanup = () => {
     document.getElementById('confirmOverlay').classList.remove('open');
     ok.removeEventListener('click', onOkHandler);
-    cancel.removeEventListener('click', onCancel);
+    cancelBtns.forEach(b => b.removeEventListener('click', onCancel));
   };
   const onOkHandler = () => { cleanup(); onOk(); };
   const onCancel = () => { cleanup(); };
   ok.addEventListener('click', onOkHandler);
-  cancel.addEventListener('click', onCancel);
+  cancelBtns.forEach(b => b.addEventListener('click', onCancel));
 }
 
 async function deleteSession(sid) {

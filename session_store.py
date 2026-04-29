@@ -49,6 +49,16 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE INDEX IF NOT EXISTS idx_tasks_session
     ON tasks(session_id);
 
+CREATE TABLE IF NOT EXISTS daily_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    provider TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_daily_usage_date ON daily_usage(date);
+
 CREATE TABLE IF NOT EXISTS memories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL DEFAULT '',
@@ -308,6 +318,51 @@ class SessionStore:
             return [{"id": r["task_id"], "title": r["title"], "description": r["description"], "status": r["status"]} for r in rows]
 
         return await asyncio.to_thread(_load)
+
+    # ------------------------------------------------------------------
+    # Daily token usage
+    # ------------------------------------------------------------------
+
+    async def add_usage(self, provider: str, model: str, input_tokens: int, output_tokens: int) -> None:
+        self._ensure_ready()
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        def _add():
+            conn = sqlite3.connect(self.db_path)
+            cur = conn.execute(
+                "SELECT id, input_tokens, output_tokens FROM daily_usage WHERE date=? AND provider=? AND model=?",
+                (today, provider, model),
+            )
+            row = cur.fetchone()
+            if row:
+                conn.execute(
+                    "UPDATE daily_usage SET input_tokens=input_tokens+?, output_tokens=output_tokens+? WHERE id=?",
+                    (input_tokens, output_tokens, row[0]),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO daily_usage (date, provider, model, input_tokens, output_tokens) VALUES (?,?,?,?,?)",
+                    (today, provider, model, input_tokens, output_tokens),
+                )
+            conn.commit()
+            conn.close()
+
+        await asyncio.to_thread(_add)
+
+    async def get_daily_usage(self, days: int = 7) -> list[dict]:
+        self._ensure_ready()
+
+        def _get():
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT date, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens FROM daily_usage GROUP BY date ORDER BY date DESC LIMIT ?",
+                (days,),
+            ).fetchall()
+            conn.close()
+            return [dict(r) for r in rows]
+
+        return await asyncio.to_thread(_get)
 
     # ------------------------------------------------------------------
     # Memory persistence (global, not per-session)

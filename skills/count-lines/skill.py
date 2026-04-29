@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 pattern = args.get("pattern", "**/*.py")
-workspace = Path(args.get("workspace", "."))
+workspace = Path(workspace if isinstance(workspace, str) else str(workspace))
 
 total_lines = 0
 total_files = 0

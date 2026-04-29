@@ -60,8 +60,16 @@ class AnthropicClient(LLMClient):
                 current_tool_block = None
                 current_text = ""
                 current_thinking = ""
+                _final_usage = None
 
                 async for event in stream:
+                    # Capture latest usage snapshot on every iteration
+                    try:
+                        snap = stream.current_message_snapshot
+                        if snap and snap.usage and snap.usage.input_tokens:
+                            _final_usage = snap.usage
+                    except Exception:
+                        pass
                     if event.type == "content_block_start":
                         if event.content_block.type == "tool_use":
                             current_tool_block = {
@@ -108,6 +116,15 @@ class AnthropicClient(LLMClient):
                     yield {"type": "text_complete", "text": current_text}
                 if current_thinking:
                     yield {"type": "thinking_complete", "thinking": current_thinking}
+
+                in_tok = _final_usage.input_tokens if _final_usage else 0
+                out_tok = _final_usage.output_tokens if _final_usage else 0
+                if in_tok > 0 or out_tok > 0:
+                    yield {"type": "usage", "input_tokens": in_tok, "output_tokens": out_tok}
+                else:
+                    msg_len = sum(len(json.dumps(m)) for m in messages)
+                    out_len = len(current_text) + len(current_thinking)
+                    yield {"type": "usage", "input_tokens": msg_len // 4, "output_tokens": out_len // 4 if out_len > 0 else 0, "estimated": True}
 
         except Exception as e:
             msg = str(e)
@@ -233,6 +250,7 @@ class OpenAIClient(LLMClient):
                 current_tool = None
                 current_text = ""
                 current_thinking = ""
+                _usage = None
 
                 async for line in resp.aiter_lines():
                     if not line.startswith("data: "):
@@ -244,6 +262,9 @@ class OpenAIClient(LLMClient):
                         chunk = json.loads(payload)
                     except json.JSONDecodeError:
                         continue
+
+                    if "usage" in chunk and chunk["usage"]:
+                        _usage = chunk["usage"]
 
                     delta = chunk.get("choices", [{}])[0].get("delta", {})
                     if delta.get("role") and not delta.get("content") and not delta.get("reasoning_content") and not delta.get("tool_calls"):
@@ -287,7 +308,15 @@ class OpenAIClient(LLMClient):
                     yield {"type": "thinking_complete", "thinking": current_thinking}
                 if current_text:
                     yield {"type": "text_complete", "text": current_text}
-                    current_text = ""
+
+                in_tok = _usage.get("prompt_tokens", 0) if _usage else 0
+                out_tok = _usage.get("completion_tokens", 0) if _usage else 0
+                if in_tok > 0 or out_tok > 0:
+                    yield {"type": "usage", "input_tokens": in_tok, "output_tokens": out_tok}
+                else:
+                    body_len = len(json.dumps(body))
+                    out_len = len(current_text) + len(current_thinking)
+                    yield {"type": "usage", "input_tokens": body_len // 4, "output_tokens": out_len // 4 if out_len > 0 else 0, "estimated": True}
 
                 if current_tool:
                     try:
