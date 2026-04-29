@@ -1,4 +1,6 @@
+import asyncio
 import json
+import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -28,7 +30,7 @@ class ProviderConfig:
 SYSTEM_PROMPT_TEMPLATE = """You are an AI coding agent with full access to a Linux environment.
 
 ABILITIES:
-You can read, write, and edit files, execute bash commands, search files with glob and grep, list directories, search the web, fetch URLs, manage tasks (task_create, task_update, task_list), and use persistent memory (memory_create, memory_search, memory_list, memory_delete). At the start of EVERY new conversation, BEFORE responding to the user's first message, call memory_list to load all memories. This is MANDATORY — memories contain user preferences and instructions you must follow. Use memory_create when the user shares preferences, facts, or project knowledge worth remembering. Keep memories SHORT — one sentence each.
+You can read, write, and edit files, execute bash commands (including background via bash_bg/bash_output/bash_kill — use bash_output with wait=30 to wait for completion, never poll in a loop), search files with glob and grep, list directories, search the web, fetch URLs, manage tasks, and use persistent memory. At the start of EVERY new conversation, BEFORE responding to the user's first message, call memory_list to load all memories. This is MANDATORY — memories contain user preferences and instructions you must follow. Use memory_create when the user shares preferences, facts, or project knowledge worth remembering. Keep memories SHORT — one sentence each.
 
 CORE WORKFLOW — For any request that requires more than one step:
 1. FIRST call task_create to break the work into clear, ordered tasks
@@ -51,7 +53,8 @@ RULES:
    - Use edit_file for surgical changes, write_file for new files
    - All paths are relative to the workspace root
 4. When you need information from the user, you MUST call ask_user — never write questions as text output.
-5. ALWAYS respond in Chinese (中文). Think and respond in Chinese.
+5. NEVER poll a tool in a loop waiting for results. Use built-in wait/timeout parameters instead (e.g. bash_output with wait=30). If you call the same tool 3+ times with the same arguments, you are stuck — try a different approach.
+6. ALWAYS respond in Chinese (中文). Think and respond in Chinese.
 
 WORKSPACE:
 {workspace_path}"""
@@ -133,6 +136,9 @@ class Agent:
         self._pending_thinking: list[dict] = []
         self.tasks: list[dict] = []
         self._task_counter: int = 0
+        self._bg_processes: dict[str, asyncio.subprocess.Process] = {}
+        self._bg_commands: dict[str, str] = {}
+        self._bg_counter: int = 0
 
     def initialize(self):
         self.skills.discover()
@@ -295,6 +301,85 @@ class Agent:
             else:
                 lines = [f"{t['id']}. [{t['status']}] {t['title']}" for t in self.tasks]
                 result = "\n".join(lines)
+            yield {"type": "tool_call_end", "tool_call_id": tool_call_id, "result": result, "elapsed": elapsed}
+            self._inject_tool_result(tool_call_id, result)
+            return
+
+        # Background bash tools
+        if name == "bash_bg":
+            command = args.get("command", "")
+            elapsed = round(time.time() - start, 1)
+            self._bg_counter += 1
+            pid = str(self._bg_counter)
+            process = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(self.workspace),
+                env={**os.environ, "PATH": "/usr/local/bin:/usr/bin:/bin"},
+            )
+            self._bg_processes[pid] = process
+            self._bg_commands[pid] = command
+            result = f"Started background process #{pid}: {command[:100]}"
+            yield {"type": "tool_call_end", "tool_call_id": tool_call_id, "result": result, "elapsed": elapsed}
+            self._inject_tool_result(tool_call_id, result)
+            return
+
+        if name == "bash_output":
+            pid = args.get("pid", "")
+            wait = float(args.get("wait", 0))
+            elapsed = round(time.time() - start, 1)
+            process = self._bg_processes.get(pid)
+            if not process:
+                msg = f"Process #{pid} not found"
+                yield {"type": "tool_call_error", "tool_call_id": tool_call_id, "error": msg, "elapsed": elapsed}
+                self._inject_tool_result(tool_call_id, f"Error: {msg}", is_error=True)
+                return
+            if wait > 0:
+                try:
+                    stdout_bytes, stderr_bytes = await asyncio.wait_for(process.communicate(), timeout=wait)
+                    running = False
+                except asyncio.TimeoutError:
+                    running = True
+                    stdout_bytes = b""
+                    stderr_bytes = b""
+            else:
+                try:
+                    stdout_bytes, stderr_bytes = await asyncio.wait_for(process.communicate(), timeout=0.1)
+                    running = False
+                except asyncio.TimeoutError:
+                    running = True
+                    stdout_bytes = b""
+                    stderr_bytes = b""
+            output = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
+            if stderr_bytes:
+                output += "\n[STDERR]\n" + stderr_bytes.decode("utf-8", errors="replace")
+            status = "running" if running else "exited (code " + str(process.returncode) + ")"
+            result = f"Process #{pid} [{status}]:\n{output or '(no output yet)'}"
+            if not running:
+                self._bg_processes.pop(pid, None)
+                self._bg_commands.pop(pid, None)
+            yield {"type": "tool_call_end", "tool_call_id": tool_call_id, "result": result, "elapsed": elapsed}
+            self._inject_tool_result(tool_call_id, result)
+            return
+
+        if name == "bash_kill":
+            pid = args.get("pid", "")
+            elapsed = round(time.time() - start, 1)
+            process = self._bg_processes.get(pid)
+            if not process:
+                msg = f"Process #{pid} not found"
+                yield {"type": "tool_call_error", "tool_call_id": tool_call_id, "error": msg, "elapsed": elapsed}
+                self._inject_tool_result(tool_call_id, f"Error: {msg}", is_error=True)
+                return
+            try:
+                process.kill()
+                await process.wait()
+            except Exception:
+                pass
+            self._bg_processes.pop(pid, None)
+            self._bg_commands.pop(pid, None)
+            result = f"Process #{pid} killed"
             yield {"type": "tool_call_end", "tool_call_id": tool_call_id, "result": result, "elapsed": elapsed}
             self._inject_tool_result(tool_call_id, result)
             return

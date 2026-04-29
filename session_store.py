@@ -8,7 +8,7 @@ No extra dependencies — sqlite3 and asyncio are in the Python 3.11+ stdlib.
 import asyncio
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -325,7 +325,7 @@ class SessionStore:
 
     async def add_usage(self, provider: str, model: str, input_tokens: int, output_tokens: int) -> None:
         self._ensure_ready()
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now().strftime("%Y-%m-%d")
 
         def _add():
             conn = sqlite3.connect(self.db_path)
@@ -349,15 +349,16 @@ class SessionStore:
 
         await asyncio.to_thread(_add)
 
-    async def get_daily_usage(self, days: int = 7) -> list[dict]:
+    async def get_daily_usage(self, days: int = 30) -> list[dict]:
         self._ensure_ready()
+        from_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
         def _get():
             conn = sqlite3.connect(self.db_path)
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
-                "SELECT date, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens FROM daily_usage GROUP BY date ORDER BY date DESC LIMIT ?",
-                (days,),
+                "SELECT date, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens FROM daily_usage WHERE date >= ? GROUP BY date ORDER BY date DESC",
+                (from_date,),
             ).fetchall()
             conn.close()
             return [dict(r) for r in rows]

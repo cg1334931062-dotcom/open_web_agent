@@ -281,10 +281,35 @@ async def delete_session(sid: str):
     return JSONResponse({"ok": True})
 
 
+@app.get("/api/bg-processes")
+async def list_bg_processes():
+    """Return all background processes across active sessions."""
+    procs = []
+    for sid, sess in state.sessions.items():
+        for pid in sess.agent._bg_processes:
+            cmd = sess.agent._bg_commands.get(pid, "unknown")[:80]
+            procs.append({"pid": pid, "command": cmd, "session": sid[:8]})
+    return JSONResponse({"processes": procs})
+
+
+@app.delete("/api/bg-processes/{pid}")
+async def kill_bg_process(pid: str):
+    for sess in state.sessions.values():
+        if pid in sess.agent._bg_processes:
+            try:
+                sess.agent._bg_processes[pid].kill()
+            except Exception:
+                pass
+            sess.agent._bg_processes.pop(pid, None)
+            sess.agent._bg_commands.pop(pid, None)
+            return JSONResponse({"ok": True})
+    return JSONResponse({"error": "Process not found"}, status_code=404)
+
+
 @app.get("/api/usage")
 async def daily_usage():
     await state.ensure_store()
-    usage = await state.store.get_daily_usage(7)
+    usage = await state.store.get_daily_usage(30)
     return JSONResponse({"usage": usage})
 
 
@@ -556,7 +581,7 @@ async def run_agent_turn(agent: Agent, send, session: SessionState):
     session._total_input = 0
     session._total_output = 0
     session._turn_start = time.time()
-    for _ in range(25):  # max 25 turns per user message
+    for _ in range(50):  # max 50 LLM-tool loops per user message
         if session.canceled:
             return
 
@@ -633,7 +658,7 @@ async def run_agent_turn(agent: Agent, send, session: SessionState):
 
         # --- Step 3: loop back to call LLM again with tool results ---
 
-    await send({"type": "error", "message": "Reached max 25 turns. Simplify your request."})
+    await send({"type": "error", "message": "Reached max 50 turns. Simplify your request or split into smaller steps."})
 
 
 # ---------------------------------------------------------------------------

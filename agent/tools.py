@@ -261,6 +261,40 @@ TOOL_DEFINITIONS = [
             "required": ["id"],
         },
     },
+    {
+        "name": "bash_bg",
+        "description": "Start a bash command in the background. Returns a process ID immediately. Use bash_output to check status and get output later. Useful for long-running commands (servers, builds, training).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "description": "The bash command to run in background"},
+            },
+            "required": ["command"],
+        },
+    },
+    {
+        "name": "bash_output",
+        "description": "Check output of a background bash process. Set wait>0 to wait up to that many seconds for completion (use this instead of polling in a loop). With wait=0, returns immediately with whatever output is available so far.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pid": {"type": "string", "description": "The background process ID from bash_bg"},
+                "wait": {"type": "number", "description": "Seconds to wait for completion (default 0 = non-blocking). Use 30-60 for typical commands."},
+            },
+            "required": ["pid"],
+        },
+    },
+    {
+        "name": "bash_kill",
+        "description": "Kill a background bash process by its ID.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pid": {"type": "string", "description": "The background process ID to kill"},
+            },
+            "required": ["pid"],
+        },
+    },
 ]
 
 TOOL_NAME_MAP = {t["name"]: t for t in TOOL_DEFINITIONS}
